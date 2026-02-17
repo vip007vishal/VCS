@@ -1,5 +1,8 @@
 {
-  "name": "SkillVerse VCS AI",
+  "name": "Copy of SkillVerse VCS AI",
   "description": "A world-class enterprise simulation platform for IT companies, featuring role-based dashboards, AI simulation, and revenue tracking.",
-  "requestFramePermissions": []
+  "requestFramePermissions": [
+    "microphone",
+    "camera"
+  ]
 }

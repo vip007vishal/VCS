@@ -1,12 +1,16 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
-import { User, Role, Company, Task, AIState, Methodology, TaskStatus, Notification, Meeting } from '../types';
-import { simulateAIBehavior, calculateRevenue, calculateFraudRisk } from '../utils/engines';
+import { User, Role, Company, Task, AIState, Methodology, TaskStatus, Notification, Meeting, Employee, Resume, Interview, ResumeStatus } from '../types';
+import { simulateAIBehavior, calculateRevenue, calculateFraudRisk, parseResumeMock, formatResumeForAI, evaluateInterviewResponse } from '../utils/engines';
+import { GoogleGenAI, Type, Schema } from "@google/genai";
 
 interface SimulationContextType {
   currentUser: User | null;
   company: Company;
   availableCompanies: Company[];
   tasks: Task[];
+  employees: Employee[];
+  resumes: Resume[];
+  interviews: Interview[];
   aiState: AIState;
   notifications: Notification[];
   meetings: Meeting[];
@@ -14,6 +18,9 @@ interface SimulationContextType {
   login: (role: Role, companyId: string) => void;
   logout: () => void;
   moveTask: (taskId: string, newStatus: TaskStatus) => void;
+  assignTask: (taskId: string, employeeId: string) => void;
+  hireEmployee: (employee: Employee) => void;
+  fireEmployee: (employeeId: string) => void;
   generateTask: () => void;
   updateSimulation: () => void;
   markNotificationRead: (id: string) => void;
@@ -21,6 +28,13 @@ interface SimulationContextType {
   setMethodology: (m: Methodology) => void;
   updateAiParams: (params: Partial<AIState>) => void;
   triggerFraudCheck: () => void;
+  // Hiring System
+  uploadResume: (file: File) => Promise<void>;
+  validateResume: (resumeId: string, status: ResumeStatus, feedback?: string) => void;
+  scheduleInterview: (candidateId: string, type: 'AI' | 'HUMAN') => void;
+  startInterview: (interviewId: string) => void;
+  submitInterviewResponse: (interviewId: string, text: string) => void;
+  finalizeInterview: (interviewId: string, decision: 'HIRED' | 'REJECTED', feedback: string, finalScores?: any) => void;
 }
 
 const SimulationContext = createContext<SimulationContextType | undefined>(undefined);
@@ -112,12 +126,19 @@ const INITIAL_AI: AIState = {
   model: 'Gemini 1.5 Pro'
 };
 
+const MOCK_EMPLOYEES: Employee[] = [
+    { id: 'u1', name: 'Alex Dev', role: 'Senior Developer', status: 'Online', reliability: 95, capacity: 5, isAi: false, risk: 'Low' },
+    { id: 'u2', name: 'Mike T.', role: 'Junior Developer', status: 'In Meeting', reliability: 78, capacity: 3, isAi: false, risk: 'High' },
+    { id: 'u3', name: 'Jessica L.', role: 'Designer', status: 'Offline', reliability: 88, capacity: 4, isAi: false, risk: 'Low' },
+    { id: 'AI', name: 'AI Copilot', role: 'Automated Agent', status: 'Processing', reliability: 92, capacity: 20, isAi: true, risk: 'Low' },
+];
+
 const MOCK_TASKS: Task[] = [
   { id: 't1', title: 'Refactor Auth Middleware', assigneeId: 'u1', status: TaskStatus.IN_PROGRESS, difficulty: 7, isAiGenerated: false },
   { id: 't2', title: 'Optimize DB Queries', assigneeId: 'AI', status: TaskStatus.DONE, difficulty: 5, aiConfidence: 95, isAiGenerated: true },
-  { id: 't3', title: 'Design System Update', assigneeId: 'u1', status: TaskStatus.BACKLOG, difficulty: 3, isAiGenerated: false },
+  { id: 't3', title: 'Design System Update', assigneeId: null, status: TaskStatus.BACKLOG, difficulty: 3, isAiGenerated: false },
   { id: 't4', title: 'Client API Integration', assigneeId: 'u1', status: TaskStatus.REVIEW, difficulty: 6, isAiGenerated: false },
-  { id: 't5', title: 'Unit Test Coverage', assigneeId: 'AI', status: TaskStatus.BACKLOG, difficulty: 4, aiConfidence: 88, isAiGenerated: true },
+  { id: 't5', title: 'Unit Test Coverage', assigneeId: null, status: TaskStatus.BACKLOG, difficulty: 4, aiConfidence: 88, isAiGenerated: true },
 ];
 
 const MOCK_MEETINGS: Meeting[] = [
@@ -125,26 +146,45 @@ const MOCK_MEETINGS: Meeting[] = [
   { id: 'm2', type: 'Sprint Planning', participants: ['u1', 'Team'], isAiDriven: false, status: 'Scheduled' },
 ];
 
+const fileToBase64 = (file: File): Promise<string> => {
+  return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.readAsDataURL(file);
+      reader.onload = () => {
+           const result = reader.result as string;
+           const base64 = result.split(',')[1];
+           resolve(base64);
+      };
+      reader.onerror = error => reject(error);
+  });
+};
+
 export const SimulationProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [company, setCompany] = useState<Company>(MOCK_COMPANIES[0]);
   const [tasks, setTasks] = useState<Task[]>(MOCK_TASKS);
+  const [employees, setEmployees] = useState<Employee[]>(MOCK_EMPLOYEES);
+  const [resumes, setResumes] = useState<Resume[]>([]);
+  const [interviews, setInterviews] = useState<Interview[]>([]);
   const [aiState, setAiState] = useState<AIState>(INITIAL_AI);
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [meetings, setMeetings] = useState<Meeting[]>(MOCK_MEETINGS);
   const [fraudRisk, setFraudRisk] = useState<{ score: number; level: 'Low' | 'Medium' | 'High' }>({ score: 12, level: 'Low' });
+
+  // Initialize Gemini API
+  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
   const login = (role: Role, companyId: string) => {
     const selectedCompany = MOCK_COMPANIES.find(c => c.id === companyId) || MOCK_COMPANIES[0];
     setCompany(selectedCompany);
     setAiState(prev => ({ ...prev, model: selectedCompany.aiModel }));
 
-    // Generate initial tasks specific to the company's model
+    // Generate initial tasks
     const modelTasks = TASKS_BY_MODEL[selectedCompany.aiModel] || TASKS_BY_MODEL['Gemini 1.5 Pro'];
     const newTasks: Task[] = Array.from({ length: 6 }).map((_, i) => ({
         id: `init_${Date.now()}_${i}`,
         title: modelTasks[i % modelTasks.length],
-        assigneeId: i < 3 ? 'u1' : 'AI', // Mix of assignments
+        assigneeId: i < 3 ? 'u1' : null,
         status: i === 0 ? TaskStatus.IN_PROGRESS : i === 1 ? TaskStatus.REVIEW : TaskStatus.BACKLOG,
         difficulty: Math.floor(Math.random() * 8) + 2,
         isAiGenerated: i >= 3,
@@ -152,9 +192,25 @@ export const SimulationProvider: React.FC<{ children: ReactNode }> = ({ children
     }));
     setTasks(newTasks);
 
+    let userId = 'u_curr';
+    let userName = 'User';
+    
+    if (role === Role.USER) {
+        userId = 'u1'; 
+        userName = 'Alex Dev';
+    } else if (role === Role.MANAGER) {
+        userId = 'm1';
+        userName = 'Sarah Manager';
+    } else if (role === Role.CEO) {
+        userId = 'c1';
+        userName = 'Elon M.';
+    } else {
+        userName = 'System Admin';
+    }
+
     setCurrentUser({
-      id: 'u1',
-      name: role === Role.CEO ? 'Elon M.' : 'Alex Dev',
+      id: userId,
+      name: userName,
       role: role,
       avatar: 'https://picsum.photos/200',
       verificationLevel: role === Role.USER ? 2 : 5,
@@ -168,6 +224,14 @@ export const SimulationProvider: React.FC<{ children: ReactNode }> = ({ children
       founderEligibility: 45
     });
     addNotification('Welcome to SkillVerse', `You have logged in as ${role} at ${selectedCompany.name}.`, 'info');
+
+    // Add mock data for Hiring system demonstration
+    if (resumes.length === 0) {
+      setResumes([
+        { id: 'r1', userId: 'u_candidate1', userName: 'Jane Doe', fileName: 'Jane_Frontend_CV.pdf', status: ResumeStatus.PENDING_VALIDATION, uploadDate: Date.now() - 100000, parsedData: parseResumeMock('Jane_Frontend_CV.pdf') },
+        { id: 'r2', userId: 'u_candidate2', userName: 'Bob Smith', fileName: 'Bob_Backend_Resume.pdf', status: ResumeStatus.APPROVED, uploadDate: Date.now() - 200000, parsedData: parseResumeMock('Bob_Backend_Resume.pdf') }
+      ]);
+    }
   };
 
   const logout = () => setCurrentUser(null);
@@ -191,26 +255,38 @@ export const SimulationProvider: React.FC<{ children: ReactNode }> = ({ children
   const moveTask = (taskId: string, newStatus: TaskStatus) => {
     setTasks(prev => prev.map(t => t.id === taskId ? { ...t, status: newStatus } : t));
     
-    if (newStatus === TaskStatus.DONE) {
-        if (currentUser) {
-            setCurrentUser(prev => prev ? ({
-                ...prev,
-                performanceScore: prev.performanceScore + 10,
-                founderEligibility: Math.min(100, prev.founderEligibility + 2)
-            }) : null);
-        }
+    if (newStatus === TaskStatus.DONE && currentUser) {
+        setCurrentUser(prev => prev ? ({
+            ...prev,
+            performanceScore: prev.performanceScore + 10,
+            founderEligibility: Math.min(100, prev.founderEligibility + 2)
+        }) : null);
     }
   };
 
+  const assignTask = (taskId: string, employeeId: string) => {
+      setTasks(prev => prev.map(t => t.id === taskId ? { ...t, assigneeId: employeeId, status: TaskStatus.IN_PROGRESS } : t));
+      const emp = employees.find(e => e.id === employeeId);
+      if(emp) addNotification('Task Assigned', `Task ${taskId} assigned to ${emp.name}`, 'success');
+  };
+
+  const hireEmployee = (employee: Employee) => {
+      setEmployees(prev => [...prev, employee]);
+  };
+
+  const fireEmployee = (employeeId: string) => {
+      setEmployees(prev => prev.filter(e => e.id !== employeeId));
+      setTasks(prev => prev.map(t => t.assigneeId === employeeId ? { ...t, assigneeId: null, status: TaskStatus.BACKLOG } : t));
+  };
+
   const generateTask = () => {
-    // Generate task based on current model
     const modelTasks = TASKS_BY_MODEL[company.aiModel] || TASKS_BY_MODEL['Gemini 1.5 Pro'];
     const randomTitle = modelTasks[Math.floor(Math.random() * modelTasks.length)];
 
     const newTask: Task = {
       id: `t${Date.now()}`,
       title: `${randomTitle} (Auto-${Math.floor(Math.random() * 100)})`,
-      assigneeId: 'AI',
+      assigneeId: null,
       status: TaskStatus.BACKLOG,
       difficulty: Math.floor(Math.random() * 10) + 1,
       isAiGenerated: true,
@@ -226,19 +302,312 @@ export const SimulationProvider: React.FC<{ children: ReactNode }> = ({ children
 
   const updateAiParams = (params: Partial<AIState>) => {
       setAiState(prev => ({ ...prev, ...params }));
-      if (params.model) {
-        addNotification('Model Switched', `AI Architecture updated to ${params.model}.`, 'info');
-      }
+      if (params.model) addNotification('Model Switched', `AI Architecture updated to ${params.model}.`, 'info');
   };
 
   const triggerFraudCheck = () => {
       if (currentUser) {
           const risk = calculateFraudRisk(currentUser, tasks.filter(t => t.status === TaskStatus.DONE).length);
           setFraudRisk(risk);
-          if (risk.level === 'High') {
-              addNotification('Security Alert', 'Suspicious activity detected on your account.', 'error');
+          if (risk.level === 'High') addNotification('Security Alert', 'Suspicious activity detected on your account.', 'error');
+      }
+  };
+
+  // --- Hiring System Implementations ---
+
+  const uploadResume = async (file: File) => {
+      if (!currentUser) return;
+      
+      addNotification('Uploading', `Analyzing ${file.name} with Gemini AI...`, 'info');
+      
+      try {
+        const base64Data = await fileToBase64(file);
+        
+        // Use Gemini to extract details
+        const response = await ai.models.generateContent({
+            model: 'gemini-3-flash-preview',
+            contents: {
+                parts: [
+                    {
+                        inlineData: {
+                            mimeType: file.type, // 'application/pdf'
+                            data: base64Data
+                        }
+                    },
+                    {
+                        text: `You are a Resume Parser. Extract the following details from this resume in strictly valid JSON format matching this schema:
+                        {
+                            "skills": ["string"],
+                            "experienceYears": number,
+                            "education": "string",
+                            "summary": "string",
+                            "projects": [{"name": "string", "desc": "string"}]
+                        }
+                        
+                        Also calculate a "matchScore" (0-100) based on how well this resume fits a tech company described as: "${company.description}".
+                        
+                        IMPORTANT: Return ONLY the JSON.`
+                    }
+                ]
+            },
+            config: {
+                responseMimeType: 'application/json',
+                responseSchema: {
+                    type: Type.OBJECT,
+                    properties: {
+                        skills: { type: Type.ARRAY, items: { type: Type.STRING } },
+                        experienceYears: { type: Type.NUMBER },
+                        education: { type: Type.STRING },
+                        summary: { type: Type.STRING },
+                        matchScore: { type: Type.NUMBER },
+                        projects: {
+                            type: Type.ARRAY,
+                            items: {
+                                type: Type.OBJECT,
+                                properties: {
+                                    name: { type: Type.STRING },
+                                    desc: { type: Type.STRING }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        });
+
+        const jsonText = response.text || "{}";
+        const parsedData = JSON.parse(jsonText);
+
+        const newResume: Resume = {
+            id: `r_${Date.now()}`,
+            userId: currentUser.id,
+            userName: currentUser.name,
+            fileName: file.name,
+            uploadDate: Date.now(),
+            status: ResumeStatus.PENDING_VALIDATION,
+            parsedData: parsedData
+        };
+
+        setResumes(prev => [...prev, newResume]);
+        addNotification('Resume Processed', 'Resume successfully analyzed by AI.', 'success');
+
+      } catch (error) {
+          console.error("Resume Parsing Error", error);
+          // Fallback
+          const parsed = parseResumeMock(file.name);
+          const newResume: Resume = {
+              id: `r_${Date.now()}`,
+              userId: currentUser.id,
+              userName: currentUser.name,
+              fileName: file.name,
+              uploadDate: Date.now(),
+              status: ResumeStatus.PENDING_VALIDATION,
+              parsedData: parsed
+          };
+          setResumes(prev => [...prev, newResume]);
+          addNotification('AI Parsing Failed', 'Could not read file directly. Using simulated data.', 'warning');
+      }
+  };
+
+  const validateResume = (resumeId: string, status: ResumeStatus, feedback?: string) => {
+      setResumes(prev => prev.map(r => 
+        r.id === resumeId ? { ...r, status, feedback } : r
+      ));
+      const resume = resumes.find(r => r.id === resumeId);
+      if (resume) {
+          addNotification(
+              `Resume ${status === ResumeStatus.APPROVED ? 'Approved' : 'Updated'}`, 
+              `Resume for ${resume.userName} has been marked as ${status}.`, 
+              status === ResumeStatus.APPROVED ? 'success' : 'warning'
+          );
+      }
+  };
+
+  const scheduleInterview = (candidateId: string, type: 'AI' | 'HUMAN') => {
+      const resume = resumes.find(r => r.userId === candidateId);
+      if (!resume) return;
+
+      if (resume.status !== ResumeStatus.APPROVED) {
+          addNotification('Error', 'Cannot schedule interview. Resume is not Approved.', 'error');
+          return;
+      }
+
+      const newInterview: Interview = {
+          id: `int_${Date.now()}`,
+          candidateId: candidateId,
+          candidateName: resume.userName,
+          resumeId: resume.id,
+          interviewerId: type === 'AI' ? 'AI' : (currentUser?.id || 'm1'),
+          type: type,
+          status: 'SCHEDULED',
+          scheduledTime: type === 'AI' ? 'On Demand' : 'Tomorrow, 10:00 AM',
+          transcript: [],
+          scores: { technical: 0, communication: 0, culture: 0, overall: 0 },
+          currentPhase: 'INTRO',
+          questionIndex: 0
+      };
+      setInterviews(prev => [...prev, newInterview]);
+      addNotification('Interview Scheduled', `${type} Interview scheduled for ${resume.userName}.`, 'info');
+  };
+
+  const startInterview = async (interviewId: string) => {
+      setInterviews(prev => prev.map(i => {
+          if (i.id === interviewId) {
+              return { ...i, status: 'IN_PROGRESS' };
+          }
+          return i;
+      }));
+
+      // If AI interview, generate the first greeting via Gemini
+      const interview = interviews.find(i => i.id === interviewId);
+      if (interview && interview.type === 'AI') {
+          const resume = resumes.find(r => r.id === interview.resumeId);
+          if (resume) {
+             try {
+                const prompt = `
+                  You are a strict, corporate AI Hiring Manager for ${company.name}.
+                  Your name is "Sentinel AI". You do not engage in small talk.
+                  You are conducting a structured interview with ${interview.candidateName}.
+                  
+                  Candidate Resume:
+                  ${formatResumeForAI(resume.parsedData)}
+                  
+                  Instruction:
+                  Start the interview formally. 
+                  State your purpose. 
+                  Ask the candidate to briefly summarize their experience.
+                  Keep it concise (max 2 sentences). Professional tone only.
+                `;
+                const response = await ai.models.generateContent({
+                    model: 'gemini-3-flash-preview',
+                    contents: prompt
+                });
+                
+                const text = response.text || "Interview sequence initiated. State your professional summary immediately.";
+
+                setInterviews(prev => prev.map(i => {
+                    if (i.id === interviewId) {
+                        return { 
+                            ...i, 
+                            transcript: [{ sender: 'AI', text: text, timestamp: Date.now() }]
+                        };
+                    }
+                    return i;
+                }));
+
+             } catch (error) {
+                 console.error("Gemini API Error", error);
+                 addNotification('AI Error', 'Failed to connect to AI Interviewer. Please try again.', 'error');
+             }
           }
       }
+  };
+
+  const submitInterviewResponse = async (interviewId: string, text: string) => {
+      // 1. Optimistically update UI with user message
+      setInterviews(prev => prev.map(i => {
+          if (i.id === interviewId) {
+              return { 
+                  ...i, 
+                  transcript: [...i.transcript, { sender: 'Candidate', text, timestamp: Date.now() }] 
+              };
+          }
+          return i;
+      }));
+
+      // 2. Call Gemini API
+      const interview = interviews.find(i => i.id === interviewId);
+      if (!interview || interview.type !== 'AI') return;
+
+      const resume = resumes.find(r => r.id === interview.resumeId);
+      if (!resume) return;
+
+      try {
+        // Construct conversation history
+        const history = interview.transcript.map(t => `${t.sender === 'AI' ? 'Interviewer' : 'Candidate'}: ${t.text}`).join('\n');
+        
+        const prompt = `
+          You are a strict, corporate AI Hiring Manager named "Sentinel AI".
+          You are interviewing ${interview.candidateName}.
+          
+          Candidate Resume Context:
+          ${formatResumeForAI(resume.parsedData)}
+
+          History:
+          ${history}
+          Candidate Response: ${text}
+
+          Instructions:
+          - Maintain a professional, slightly cold, corporate tone.
+          - If the candidate's answer is short or vague, say "Elaborate."
+          - Ask ONLY ONE next question.
+          - The question must be MEDIUM level difficulty.
+          - The question must be SHORT and CONCISE (maximum 2 sentences).
+          - Do not ask multiple questions in one turn.
+          - If you have enough info (5-6 exchanges), say "INTERVIEW_COMPLETE" followed by a closing statement.
+          
+          Do not use emojis. Be direct.
+        `;
+
+        const response = await ai.models.generateContent({
+            model: 'gemini-3-flash-preview',
+            contents: prompt
+        });
+
+        const aiText = response.text?.trim() || "Proceed.";
+        const isComplete = aiText.includes("INTERVIEW_COMPLETE");
+        const finalText = aiText.replace("INTERVIEW_COMPLETE", "").trim() || "Interview concluded. Disconnect.";
+
+        // Score the answer for simulation stats
+        const score = evaluateInterviewResponse(interview.transcript[interview.transcript.length-1]?.text || "", text);
+
+        setInterviews(prev => prev.map(i => {
+            if (i.id === interviewId) {
+                return { 
+                    ...i, 
+                    transcript: [...i.transcript, { sender: 'Candidate', text, timestamp: Date.now() }, { sender: 'AI', text: finalText, timestamp: Date.now() }],
+                    status: isComplete ? 'DECISION_PENDING' : 'IN_PROGRESS',
+                    scores: { ...i.scores, overall: Math.floor((i.scores.overall + score) / 2) }
+                };
+            }
+            return i;
+        }));
+
+      } catch (error) {
+          console.error("Gemini API Error", error);
+      }
+  };
+
+  const finalizeInterview = (interviewId: string, decision: 'HIRED' | 'REJECTED', feedback: string, finalScores?: any) => {
+      setInterviews(prev => prev.map(i => {
+          if (i.id === interviewId) {
+              if (decision === 'HIRED') {
+                  // Auto-hire logic
+                  const newEmp: Employee = {
+                      id: i.candidateId,
+                      name: i.candidateName,
+                      role: 'Junior Developer', // Default
+                      status: 'Online',
+                      reliability: 80,
+                      capacity: 5,
+                      isAi: false,
+                      risk: 'Low'
+                  };
+                  hireEmployee(newEmp);
+                  addNotification('Hiring Complete', `${i.candidateName} has joined the team!`, 'success');
+              } else {
+                  addNotification('Application Update', `Candidate ${i.candidateName} was rejected.`, 'warning');
+              }
+              
+              return { 
+                  ...i, 
+                  status: decision, 
+                  feedback, 
+                  scores: finalScores || i.scores 
+              };
+          }
+          return i;
+      }));
   };
 
   const updateSimulation = () => {
@@ -271,7 +640,6 @@ export const SimulationProvider: React.FC<{ children: ReactNode }> = ({ children
     }
   };
 
-  // Global heartbeat for simulation
   useEffect(() => {
     if (!currentUser) return;
     const interval = setInterval(updateSimulation, 5000); 
@@ -280,9 +648,10 @@ export const SimulationProvider: React.FC<{ children: ReactNode }> = ({ children
 
   return (
     <SimulationContext.Provider value={{ 
-        currentUser, company, availableCompanies: MOCK_COMPANIES, tasks, aiState, notifications, meetings, fraudRisk,
-        login, logout, moveTask, generateTask, updateSimulation, 
-        markNotificationRead, addNotification, setMethodology, updateAiParams, triggerFraudCheck
+        currentUser, company, availableCompanies: MOCK_COMPANIES, tasks, employees, aiState, notifications, meetings, fraudRisk, resumes, interviews,
+        login, logout, moveTask, assignTask, hireEmployee, fireEmployee, generateTask, updateSimulation, 
+        markNotificationRead, addNotification, setMethodology, updateAiParams, triggerFraudCheck,
+        uploadResume, validateResume, scheduleInterview, startInterview, submitInterviewResponse, finalizeInterview
     }}>
       {children}
     </SimulationContext.Provider>

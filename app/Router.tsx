@@ -38,6 +38,7 @@ import UsersManagementPage from '../pages/UsersManagementPage';
 import CompaniesManagementPage from '../pages/CompaniesManagementPage';
 import AIControlPanel from '../pages/AIControlPanel';
 import FraudPanel from '../pages/FraudPanel';
+import ResumeValidationPage from '../pages/ResumeValidationPage';
 
 const PrivateRoute: React.FC<{ children: React.ReactNode; roles?: Role[] }> = ({ children, roles }) => {
   const { currentUser } = useSimulation();
@@ -88,18 +89,23 @@ export const AppRouter: React.FC = () => {
       <Route path="/tasks" element={<PrivateRoute roles={[Role.USER]}><TasksPage /></PrivateRoute>} />
       <Route path="/career" element={<PrivateRoute roles={[Role.USER]}><CareerPage /></PrivateRoute>} />
       <Route path="/verification" element={<PrivateRoute roles={[Role.USER]}><VerificationPage /></PrivateRoute>} />
+      
+      {/* Interview Access for Candidates (Users) and Hiring Managers */}
+      <Route path="/interviews" element={<PrivateRoute roles={[Role.USER, Role.MANAGER, Role.CEO]}><InterviewsPage /></PrivateRoute>} />
 
       {/* Role Specific Routes: MANAGER */}
       <Route path="/team" element={<PrivateRoute roles={[Role.MANAGER]}><TeamsPage /></PrivateRoute>} />
       <Route path="/allocation" element={<PrivateRoute roles={[Role.MANAGER]}><TaskAllocationPage /></PrivateRoute>} />
       <Route path="/reports" element={<PrivateRoute roles={[Role.MANAGER]}><ReportsPage /></PrivateRoute>} />
       <Route path="/promotions" element={<PrivateRoute roles={[Role.MANAGER]}><PromotionsPage /></PrivateRoute>} />
+      
+      {/* Hiring & Validation Routes */}
+      <Route path="/resume-validation" element={<PrivateRoute roles={[Role.MANAGER, Role.CEO]}><ResumeValidationPage /></PrivateRoute>} />
+      <Route path="/hiring" element={<PrivateRoute roles={[Role.MANAGER, Role.CEO]}><HiringPage /></PrivateRoute>} />
 
       {/* Role Specific Routes: CEO */}
       <Route path="/revenue" element={<PrivateRoute roles={[Role.CEO]}><RevenuePage /></PrivateRoute>} />
       <Route path="/methodology" element={<PrivateRoute roles={[Role.CEO]}><MethodologyPage /></PrivateRoute>} />
-      <Route path="/hiring" element={<PrivateRoute roles={[Role.CEO]}><HiringPage /></PrivateRoute>} />
-      <Route path="/interviews" element={<PrivateRoute roles={[Role.CEO]}><InterviewsPage /></PrivateRoute>} />
       
       {/* Role Specific Routes: ADMIN */}
       <Route path="/admin" element={<PrivateRoute roles={[Role.ADMIN]}><AdminDashboard /></PrivateRoute>} />

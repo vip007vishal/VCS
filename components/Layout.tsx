@@ -3,7 +3,7 @@ import { useSimulation } from '../context/SimulationContext';
 import { Role } from '../types';
 import { 
   LayoutDashboard, Users, Briefcase, Settings, LogOut, 
-  TrendingUp, ShieldCheck, Activity, BrainCircuit, Bell, Calendar, Award, Shield, User, Building, ListTodo, UserPlus, Sliders, ShieldAlert, Video
+  TrendingUp, ShieldCheck, Activity, BrainCircuit, Bell, Calendar, Award, Shield, User, Building, ListTodo, UserPlus, Sliders, ShieldAlert, Video, FileCheck
 } from 'lucide-react';
 import { useNavigate, useLocation } from 'react-router-dom';
 
@@ -71,6 +71,7 @@ export const Sidebar: React.FC = () => {
           ...common,
           { label: 'Tasks', to: '/tasks', icon: ListTodo },
           { label: 'Collaborator', to: '/collaborator', icon: Briefcase },
+          { label: 'Interviews', to: '/interviews', icon: Video },
           { label: 'Meetings', to: '/meetings', icon: Calendar },
           { label: 'Performance', to: '/performance', icon: TrendingUp },
           { label: 'Career', to: '/career', icon: Award },
@@ -82,6 +83,9 @@ export const Sidebar: React.FC = () => {
           ...common,
           { label: 'Team', to: '/team', icon: Users },
           { label: 'Allocation', to: '/allocation', icon: ListTodo },
+          { label: 'Resume Validation', to: '/resume-validation', icon: FileCheck },
+          { label: 'Hiring Center', to: '/hiring', icon: UserPlus },
+          { label: 'Interviews', to: '/interviews', icon: Video },
           { label: 'Reports', to: '/reports', icon: Activity },
           { label: 'Promotions', to: '/promotions', icon: Award },
           { label: 'Collaborator', to: '/collaborator', icon: Users },
@@ -91,7 +95,8 @@ export const Sidebar: React.FC = () => {
         return [
           ...common,
           { label: 'Revenue', to: '/revenue', icon: TrendingUp },
-          { label: 'Hiring', to: '/hiring', icon: UserPlus },
+          { label: 'Resume Validation', to: '/resume-validation', icon: FileCheck },
+          { label: 'Hiring Center', to: '/hiring', icon: UserPlus },
           { label: 'Interviews', to: '/interviews', icon: Video },
           { label: 'Methodology', to: '/methodology', icon: BrainCircuit },
           { label: 'Company', to: '/company', icon: Building },
@@ -122,7 +127,7 @@ export const Sidebar: React.FC = () => {
           </h1>
         </div>
         <div className="mt-4 px-3 py-1 bg-slate-800 rounded text-xs text-slate-400 flex justify-between">
-            <span>Ver. 1.0.4</span>
+            <span>Ver. 1.0.5</span>
             <span className="text-emerald-400">Online</span>
         </div>
       </div>

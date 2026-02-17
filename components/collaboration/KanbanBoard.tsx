@@ -1,9 +1,22 @@
 import React from 'react';
 import { useSimulation } from '../../context/SimulationContext';
-import { TaskStatus, Methodology } from '../../types';
-import { Clock, AlertTriangle } from 'lucide-react';
+import { TaskStatus, Methodology, Employee } from '../../types';
+import { Clock, AlertTriangle, BrainCircuit } from 'lucide-react';
 
-const KanbanColumn: React.FC<{ title: string; tasks: any[]; onDrop: (e: React.DragEvent) => void; color?: string }> = ({ title, tasks, onDrop, color }) => {
+const KanbanColumn: React.FC<{ title: string; tasks: any[]; employees: Employee[]; onDrop: (e: React.DragEvent) => void; color?: string }> = ({ title, tasks, employees, onDrop, color }) => {
+  
+  const getAssigneeAvatar = (assigneeId: string | null) => {
+      if (!assigneeId) return null;
+      const emp = employees.find(e => e.id === assigneeId);
+      if (!emp) return <div className="w-5 h-5 rounded-full bg-slate-600 text-[8px] flex items-center justify-center text-white">?</div>;
+      
+      return (
+          <div className={`w-5 h-5 rounded-full flex items-center justify-center text-[8px] font-bold text-white ${emp.isAi ? 'bg-indigo-600' : 'bg-slate-600'}`} title={emp.name}>
+             {emp.isAi ? <BrainCircuit size={10} /> : emp.name.charAt(0)}
+          </div>
+      );
+  };
+
   return (
     <div 
       className={`flex-1 min-w-[250px] bg-slate-900/50 rounded-xl p-4 border ${color ? `border-${color}-500/30` : 'border-slate-800/50'} flex flex-col h-full`}
@@ -34,11 +47,14 @@ const KanbanColumn: React.FC<{ title: string; tasks: any[]; onDrop: (e: React.Dr
                  <Clock size={12} />
                  <span>2d</span>
                </div>
-               {task.aiConfidence && (
-                 <span className={task.aiConfidence > 80 ? 'text-emerald-400' : 'text-amber-400'}>
-                   {task.aiConfidence}% Conf.
-                 </span>
-               )}
+               <div className="flex items-center gap-2">
+                   {task.aiConfidence && (
+                     <span className={task.aiConfidence > 80 ? 'text-emerald-400' : 'text-amber-400'}>
+                       {task.aiConfidence}%
+                     </span>
+                   )}
+                   {getAssigneeAvatar(task.assigneeId)}
+               </div>
             </div>
           </div>
         ))}
@@ -48,7 +64,7 @@ const KanbanColumn: React.FC<{ title: string; tasks: any[]; onDrop: (e: React.Dr
 };
 
 export const KanbanBoard: React.FC = () => {
-    const { tasks, moveTask, company } = useSimulation();
+    const { tasks, moveTask, company, employees } = useSimulation();
 
     const handleDrop = (e: React.DragEvent, status: TaskStatus) => {
         const taskId = e.dataTransfer.getData('taskId');
@@ -88,6 +104,7 @@ export const KanbanBoard: React.FC = () => {
                   key={col.title}
                   title={col.title}
                   color={col.color}
+                  employees={employees}
                   tasks={tasks.filter(t => {
                       if (company.methodology === Methodology.KANBAN) {
                           if (col.status === TaskStatus.IN_PROGRESS) return t.status === TaskStatus.IN_PROGRESS || t.status === TaskStatus.REVIEW;

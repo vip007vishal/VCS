@@ -1,38 +1,36 @@
 import React, { useState } from 'react';
 import { Card, Button, Badge, Modal } from '../components/UI';
 import { useSimulation } from '../context/SimulationContext';
-import { Users, UserPlus, Trash2, Zap, Shield } from 'lucide-react';
+import { UserPlus, Trash2, Zap, Shield } from 'lucide-react';
+import { Employee, TaskStatus } from '../types';
 
 const TeamsPage: React.FC = () => {
-    const { addNotification } = useSimulation();
+    const { addNotification, employees, hireEmployee, fireEmployee, tasks } = useSimulation();
     const [isHireModalOpen, setIsHireModalOpen] = useState(false);
     
-    // Mock team state
-    const [team, setTeam] = useState([
-        { id: 1, name: 'Sarah J.', role: 'Senior Developer', status: 'Online', reliability: 95, tasks: 4 },
-        { id: 2, name: 'Mike T.', role: 'Junior Developer', status: 'In Meeting', reliability: 78, tasks: 2 },
-        { id: 3, name: 'AI Unit-734', role: 'AI Copilot', status: 'Processing', reliability: 92, tasks: 12, isAi: true },
-        { id: 4, name: 'Jessica L.', role: 'Designer', status: 'Offline', reliability: 88, tasks: 1 },
-    ]);
-
-    const handleRemove = (id: number) => {
-        setTeam(team.filter(m => m.id !== id));
+    const handleRemove = (id: string) => {
+        fireEmployee(id);
         addNotification('Team Update', 'Member removed from team roster.', 'warning');
     };
 
     const handleHireAI = () => {
-        const newAI = {
-            id: Date.now(),
+        const newAI: Employee = {
+            id: `ai_${Date.now()}`,
             name: `AI Unit-${Math.floor(Math.random() * 900) + 100}`,
             role: 'AI Specialist',
-            status: 'Initializing',
+            status: 'Processing',
             reliability: 90,
-            tasks: 0,
-            isAi: true
+            capacity: 15,
+            isAi: true,
+            risk: 'Low'
         };
-        setTeam([...team, newAI]);
+        hireEmployee(newAI);
         setIsHireModalOpen(false);
         addNotification('New Hire', 'AI Unit initialized and assigned to team.', 'success');
+    };
+
+    const getActiveTaskCount = (empId: string) => {
+        return tasks.filter(t => t.assigneeId === empId && t.status === TaskStatus.IN_PROGRESS).length;
     };
 
     return (
@@ -43,7 +41,7 @@ const TeamsPage: React.FC = () => {
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                {team.map(member => (
+                {employees.map(member => (
                     <Card key={member.id} className="relative overflow-hidden group">
                         <div className="flex justify-between items-start mb-4">
                             <div className="flex items-center gap-3">
@@ -67,13 +65,16 @@ const TeamsPage: React.FC = () => {
                             </div>
                             <div className="flex justify-between text-sm">
                                 <span className="text-slate-500 flex items-center gap-2"><Zap size={14}/> Active Tasks</span>
-                                <span className="text-white">{member.tasks}</span>
+                                <span className="text-white">{getActiveTaskCount(member.id)}</span>
                             </div>
                         </div>
 
                         <div className="mt-4 flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
                              <Button variant="outline" className="flex-1 text-xs h-8">View Details</Button>
-                             <Button variant="danger" className="text-xs h-8 w-8 p-0" onClick={() => handleRemove(member.id)}><Trash2 size={14} /></Button>
+                             {/* Prevent firing the main user/admin placeholder for stability */}
+                             {member.id !== 'u_curr' && (
+                                <Button variant="danger" className="text-xs h-8 w-8 p-0" onClick={() => handleRemove(member.id)}><Trash2 size={14} /></Button>
+                             )}
                         </div>
                     </Card>
                 ))}

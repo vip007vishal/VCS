@@ -39,10 +39,22 @@ export interface User {
   founderEligibility: number; // 0-100%
 }
 
+export interface Employee {
+  id: string;
+  name: string;
+  role: string;
+  status: 'Online' | 'Offline' | 'In Meeting' | 'Processing';
+  reliability: number;
+  capacity: number; // Max concurrent tasks
+  isAi: boolean;
+  avatar?: string;
+  risk?: 'Low' | 'Medium' | 'High';
+}
+
 export interface Task {
   id: string;
   title: string;
-  assigneeId: string | 'AI';
+  assigneeId: string | 'AI' | null;
   status: TaskStatus;
   difficulty: number; // 1-10
   aiConfidence?: number;
@@ -75,4 +87,54 @@ export interface Meeting {
   participants: string[];
   isAiDriven: boolean;
   status: 'Scheduled' | 'Live' | 'Completed';
+}
+
+// --- NEW HIRING SYSTEM TYPES ---
+
+export enum ResumeStatus {
+  PENDING_VALIDATION = 'PENDING_VALIDATION',
+  APPROVED = 'APPROVED',
+  REJECTED = 'REJECTED',
+  CHANGES_REQUESTED = 'CHANGES_REQUESTED'
+}
+
+export interface Resume {
+  id: string;
+  userId: string;
+  userName: string;
+  fileName: string;
+  uploadDate: number;
+  status: ResumeStatus;
+  feedback?: string;
+  parsedData: {
+    skills: string[];
+    experienceYears: number;
+    education: string;
+    summary: string;
+    matchScore: number; // 0-100 match against company needs
+    projects?: { name: string; desc: string }[];
+  };
+}
+
+export type InterviewPhase = 'INTRO' | 'TECHNICAL_RESUME' | 'DEEP_DIVE' | 'SCENARIO' | 'BEHAVIORAL' | 'CLOSING' | 'COMPLETED';
+
+export interface Interview {
+  id: string;
+  candidateId: string;
+  candidateName: string;
+  resumeId: string;
+  interviewerId: string | 'AI'; // 'AI' or User ID of manager
+  type: 'AI' | 'HUMAN';
+  status: 'SCHEDULED' | 'IN_PROGRESS' | 'COMPLETED' | 'DECISION_PENDING' | 'HIRED' | 'REJECTED';
+  scheduledTime: string;
+  transcript: { sender: 'AI' | 'Candidate' | 'Interviewer'; text: string; timestamp: number }[];
+  scores: {
+    technical: number;
+    communication: number;
+    culture: number;
+    overall: number;
+  };
+  feedback?: string;
+  currentPhase: InterviewPhase;
+  questionIndex: number;
 }
