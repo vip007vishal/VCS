@@ -97,7 +97,7 @@ export const AppRouter: React.FC = () => {
       <Route path="/team" element={<PrivateRoute roles={[Role.MANAGER]}><TeamsPage /></PrivateRoute>} />
       <Route path="/allocation" element={<PrivateRoute roles={[Role.MANAGER]}><TaskAllocationPage /></PrivateRoute>} />
       <Route path="/reports" element={<PrivateRoute roles={[Role.MANAGER]}><ReportsPage /></PrivateRoute>} />
-      <Route path="/promotions" element={<PrivateRoute roles={[Role.MANAGER]}><PromotionsPage /></PrivateRoute>} />
+      <Route path="/promotions" element={<PrivateRoute roles={[Role.MANAGER, Role.CEO]}><PromotionsPage /></PrivateRoute>} />
       
       {/* Hiring & Validation Routes */}
       <Route path="/resume-validation" element={<PrivateRoute roles={[Role.MANAGER, Role.CEO]}><ResumeValidationPage /></PrivateRoute>} />

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Card, Button, Badge, Input } from '../components/UI';
-import { Video, Clock, CheckCircle, Upload, Bot, User, Send, PlayCircle, Mic, MicOff, Volume2, VolumeX, AlertTriangle, Loader, Camera, CameraOff, Maximize, Activity } from 'lucide-react';
+import { Video, Clock, CheckCircle, Upload, Bot, User, Send, PlayCircle, Mic, MicOff, Volume2, VolumeX, AlertTriangle, Loader, Camera, CameraOff, Maximize, Activity, PauseCircle } from 'lucide-react';
 import { useSimulation } from '../context/SimulationContext';
 import { Interview, ResumeStatus } from '../types';
 
@@ -368,7 +368,7 @@ const AIChatConsole: React.FC<{ interview: Interview }> = ({ interview }) => {
 };
 
 const InterviewsPage: React.FC = () => {
-    const { currentUser, interviews, startInterview } = useSimulation();
+    const { currentUser, interviews, startInterview, pauseInterview } = useSimulation();
 
     // Filter interviews for the current user
     const myInterviews = interviews.filter(i => i.candidateId === currentUser?.id);
@@ -382,7 +382,7 @@ const InterviewsPage: React.FC = () => {
             {activeInterview ? (
                 <div className="max-w-6xl mx-auto">
                      <div className="mb-4">
-                         <div onClick={() => {}} className="inline-flex items-center gap-2 text-sm text-slate-400 hover:text-white cursor-pointer mb-2">
+                         <div onClick={() => pauseInterview(activeInterview.id)} className="inline-flex items-center gap-2 text-sm text-slate-400 hover:text-white cursor-pointer mb-2">
                              &larr; Exit Session (Progress Saved)
                          </div>
                      </div>
@@ -440,6 +440,10 @@ const InterviewsPage: React.FC = () => {
                                             {interview.status === 'SCHEDULED' ? (
                                                 <Button onClick={() => startInterview(interview.id)}>
                                                     <PlayCircle size={16}/> Start Session
+                                                </Button>
+                                            ) : interview.status === 'PAUSED' ? (
+                                                <Button onClick={() => startInterview(interview.id)} variant="secondary">
+                                                    <PauseCircle size={16}/> Resume Session
                                                 </Button>
                                             ) : interview.status === 'DECISION_PENDING' ? (
                                                 <Badge color="yellow">Evaluation Pending</Badge>

@@ -36,7 +36,7 @@ export const Input: React.FC<React.InputHTMLAttributes<HTMLInputElement>> = ({ c
   />
 );
 
-export const Badge: React.FC<{ children: React.ReactNode; color?: 'green' | 'yellow' | 'red' | 'blue' | 'purple' }> = ({ children, color = 'blue' }) => {
+export const Badge: React.FC<{ children: React.ReactNode; color?: 'green' | 'yellow' | 'red' | 'blue' | 'purple'; className?: string }> = ({ children, color = 'blue', className = '' }) => {
   const colors = {
     green: "bg-emerald-500/10 text-emerald-400 border-emerald-500/20",
     yellow: "bg-amber-500/10 text-amber-400 border-amber-500/20",
@@ -45,7 +45,7 @@ export const Badge: React.FC<{ children: React.ReactNode; color?: 'green' | 'yel
     purple: "bg-purple-500/10 text-purple-400 border-purple-500/20"
   };
   return (
-    <span className={`px-2 py-0.5 rounded-full text-xs font-medium border ${colors[color]}`}>
+    <span className={`px-2 py-0.5 rounded-full text-xs font-medium border ${colors[color]} ${className}`}>
       {children}
     </span>
   );

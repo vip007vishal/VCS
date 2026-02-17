@@ -19,6 +19,8 @@ export enum Methodology {
   KANBAN = 'KANBAN'
 }
 
+export type FieldOfInterest = 'Frontend' | 'Backend' | 'Figma Design' | 'Tester' | 'Cloud' | 'Database';
+
 export interface Notification {
   id: string;
   title: string;
@@ -31,12 +33,14 @@ export interface Notification {
 export interface User {
   id: string;
   name: string;
+  email?: string;
   role: Role;
   avatar: string;
   verificationLevel: number; // 1-5
   performanceScore: number;
   skills: { name: string; level: number }[];
   founderEligibility: number; // 0-100%
+  fieldOfInterest?: FieldOfInterest;
 }
 
 export interface Employee {
@@ -125,7 +129,7 @@ export interface Interview {
   resumeId: string;
   interviewerId: string | 'AI'; // 'AI' or User ID of manager
   type: 'AI' | 'HUMAN';
-  status: 'SCHEDULED' | 'IN_PROGRESS' | 'COMPLETED' | 'DECISION_PENDING' | 'HIRED' | 'REJECTED';
+  status: 'SCHEDULED' | 'IN_PROGRESS' | 'PAUSED' | 'COMPLETED' | 'DECISION_PENDING' | 'HIRED' | 'REJECTED';
   scheduledTime: string;
   transcript: { sender: 'AI' | 'Candidate' | 'Interviewer'; text: string; timestamp: number }[];
   scores: {
