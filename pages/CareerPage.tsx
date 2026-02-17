@@ -83,7 +83,7 @@ const CareerPage: React.FC = () => {
                         </div>
                         <div className="flex items-center gap-3 p-3 bg-slate-900/50 rounded-lg border border-slate-700">
                             <div className="w-6 h-6 rounded-full bg-slate-800 flex items-center justify-center text-slate-500">2</div>
-                            <span className="text-sm text-slate-300">Maintain >90% Reliability for 7 days</span>
+                            <span className="text-sm text-slate-300">Maintain &gt;90% Reliability for 7 days</span>
                         </div>
                         <div className="flex items-center gap-3 p-3 bg-slate-900/50 rounded-lg border border-slate-700">
                             <div className="w-6 h-6 rounded-full bg-slate-800 flex items-center justify-center text-slate-500">3</div>
