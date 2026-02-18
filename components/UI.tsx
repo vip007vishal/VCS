@@ -1,3 +1,4 @@
+
 import React from 'react';
 import { LucideIcon, X } from 'lucide-react';
 
@@ -65,16 +66,28 @@ export const StatBox: React.FC<{ label: string; value: string | number; trend?: 
   </div>
 );
 
-export const Modal: React.FC<{ isOpen: boolean; onClose: () => void; title: string; children: React.ReactNode }> = ({ isOpen, onClose, title, children }) => {
+export const Modal: React.FC<{ isOpen: boolean; onClose: () => void; title: string; children: React.ReactNode; size?: 'md' | 'lg' | 'xl' | 'full' }> = ({ isOpen, onClose, title, children, size = 'md' }) => {
   if (!isOpen) return null;
+  
+  const sizeClasses = {
+    md: 'max-w-lg',
+    lg: 'max-w-2xl',
+    xl: 'max-w-6xl h-[90vh]',
+    full: 'w-screen h-screen rounded-none border-0'
+  };
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm">
-      <div className="bg-slate-900 border border-slate-700 rounded-xl w-full max-w-lg p-6 shadow-2xl relative">
-        <button onClick={onClose} className="absolute top-4 right-4 text-slate-400 hover:text-white">
-          <X size={20} />
-        </button>
-        <h2 className="text-xl font-bold text-white mb-4">{title}</h2>
-        <div>{children}</div>
+    <div className={`fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm ${size === 'full' ? 'p-0' : 'p-4'}`}>
+      <div className={`bg-slate-900 border border-slate-700 rounded-xl w-full flex flex-col shadow-2xl relative transition-all duration-300 ${sizeClasses[size]}`}>
+        <div className="flex justify-between items-center p-6 border-b border-slate-700 shrink-0">
+            <h2 className="text-xl font-bold text-white">{title}</h2>
+            <button onClick={onClose} className="text-slate-400 hover:text-white transition-colors">
+              <X size={20} />
+            </button>
+        </div>
+        <div className="flex-1 overflow-auto p-6 relative flex flex-col">
+            {children}
+        </div>
       </div>
     </div>
   );

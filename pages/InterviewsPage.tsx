@@ -1,6 +1,7 @@
+
 import React, { useState, useEffect, useRef } from 'react';
 import { Card, Button, Badge, Input } from '../components/UI';
-import { Video, Clock, CheckCircle, Upload, Bot, User, Send, PlayCircle, Mic, MicOff, Volume2, VolumeX, AlertTriangle, Loader, Camera, CameraOff, Maximize, Activity, PauseCircle } from 'lucide-react';
+import { Video, Clock, CheckCircle, Upload, Bot, User, Send, PlayCircle, Mic, MicOff, Volume2, VolumeX, AlertTriangle, Loader, Camera, CameraOff, Maximize, Activity, PauseCircle, Square, Hourglass, Shield, ShieldAlert, EyeOff } from 'lucide-react';
 import { useSimulation } from '../context/SimulationContext';
 import { Interview, ResumeStatus } from '../types';
 
@@ -75,8 +76,8 @@ const ResumeUploader: React.FC = () => {
     );
 };
 
-const AIChatConsole: React.FC<{ interview: Interview }> = ({ interview }) => {
-    const { submitInterviewResponse } = useSimulation();
+const AIChatConsole: React.FC<{ interview: Interview; isProctored: boolean }> = ({ interview, isProctored }) => {
+    const { submitInterviewResponse, logInterviewViolation } = useSimulation();
     const [input, setInput] = useState('');
     const scrollRef = React.useRef<HTMLDivElement>(null);
     const [isListening, setIsListening] = useState(false);
@@ -84,12 +85,34 @@ const AIChatConsole: React.FC<{ interview: Interview }> = ({ interview }) => {
     const [audioEnabled, setAudioEnabled] = useState(false);
     const recognitionRef = useRef<any>(null);
 
+    // Proctor Mode State (Local tracking for UI, violations sent to context)
+    const [violations, setViolations] = useState<{type: string, time: string}[]>([]);
+
+    // Timer State
+    const [timeLeft, setTimeLeft] = useState(0);
+    const [maxTime, setMaxTime] = useState(0);
+
     // Camera & Media State
     const videoRef = useRef<HTMLVideoElement>(null);
     const [mediaStream, setMediaStream] = useState<MediaStream | null>(null);
     const [cameraOn, setCameraOn] = useState(true);
     const [micOn, setMicOn] = useState(true);
     const [permissionError, setPermissionError] = useState(false);
+
+    const isFinished = interview.status === 'DECISION_PENDING' || interview.status === 'COMPLETED';
+
+    // Helper to calculate question weight/time
+    const calculateTimeForQuestion = (text: string) => {
+        let duration = 60; // Base time 60s
+        const lowerText = text.toLowerCase();
+        
+        // Complexity heuristics
+        if (text.length > 150) duration += 30; // Long question
+        if (lowerText.includes('design') || lowerText.includes('architecture')) duration += 60; // System design
+        if (lowerText.includes('example') || lowerText.includes('scenario')) duration += 30; // Behavioral
+        
+        return duration;
+    };
 
     // Initialize Camera
     useEffect(() => {
@@ -127,46 +150,119 @@ const AIChatConsole: React.FC<{ interview: Interview }> = ({ interview }) => {
         }
     }, [cameraOn, micOn, mediaStream]);
 
+    // Proctor Logic: Tab Switching & Fullscreen Detection
+    useEffect(() => {
+        if (!isProctored) return;
+
+        const handleVisibilityChange = () => {
+            if (document.hidden) {
+                const msg = 'Tab Switch Detected';
+                setViolations(prev => [...prev, { type: msg, time: new Date().toLocaleTimeString() }]);
+                logInterviewViolation(interview.id, msg);
+            }
+        };
+
+        const handleFullscreenChange = () => {
+            if (!document.fullscreenElement) {
+                const msg = 'Exited Fullscreen';
+                setViolations(prev => [...prev, { type: msg, time: new Date().toLocaleTimeString() }]);
+                logInterviewViolation(interview.id, msg);
+            }
+        };
+
+        document.addEventListener('visibilitychange', handleVisibilityChange);
+        document.addEventListener('fullscreenchange', handleFullscreenChange);
+
+        // Attempt to enter fullscreen on mount if proctored
+        document.documentElement.requestFullscreen().catch(err => console.log("Auto-fullscreen blocked", err));
+
+        return () => {
+            document.removeEventListener('visibilitychange', handleVisibilityChange);
+            document.removeEventListener('fullscreenchange', handleFullscreenChange);
+            if(document.fullscreenElement) document.exitFullscreen();
+        };
+    }, [isProctored, interview.id]);
+
     // Initialize Speech Recognition
     useEffect(() => {
         if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
             const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
             recognitionRef.current = new SpeechRecognition();
-            recognitionRef.current.continuous = false;
-            recognitionRef.current.interimResults = false;
+            recognitionRef.current.continuous = true; // Key change: Continuous recording
+            recognitionRef.current.interimResults = true;
             recognitionRef.current.lang = 'en-US';
 
             recognitionRef.current.onresult = (event: any) => {
-                const transcript = event.results[0][0].transcript;
-                setInput(transcript);
-                setIsListening(false);
+                let finalTranscript = '';
+                for (let i = event.resultIndex; i < event.results.length; ++i) {
+                    if (event.results[i].isFinal) {
+                        finalTranscript += event.results[i][0].transcript;
+                    } else {
+                        // Handle interim if needed
+                        setInput(prev => prev); 
+                    }
+                }
+                // Just grabbing the latest complete transcript for the input box
+                const latest = Array.from(event.results)
+                    .map((result: any) => result[0].transcript)
+                    .join('');
+                setInput(latest);
             };
 
             recognitionRef.current.onerror = (event: any) => {
                 console.error("Speech recognition error", event.error);
-                setIsListening(false);
+                if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
+                    setIsListening(false);
+                }
             };
 
             recognitionRef.current.onend = () => {
-                setIsListening(false);
+                // If we didn't explicitly stop it (isListening is still true), restart it
+                // This handles silence timeouts
+                // However, we are controlling state via button, so we handle logic there
             };
         }
     }, []);
 
-    // Text-to-Speech: Read last AI message
+    // Text-to-Speech & Timer Logic
     useEffect(() => {
-        if (audioEnabled && interview.transcript.length > 0) {
+        if (interview.transcript.length > 0) {
             const lastMessage = interview.transcript[interview.transcript.length - 1];
+            
+            // If AI just spoke, read it and set timer
             if (lastMessage.sender === 'AI') {
-                const utterance = new SpeechSynthesisUtterance(lastMessage.text);
-                utterance.pitch = 0.8; // Lower pitch for corporate tone
-                utterance.rate = 1.1;  // Slightly faster
-                utterance.onstart = () => setIsSpeaking(true);
-                utterance.onend = () => setIsSpeaking(false);
-                window.speechSynthesis.speak(utterance);
+                // 1. Set Timer
+                const time = calculateTimeForQuestion(lastMessage.text);
+                setMaxTime(time);
+                setTimeLeft(time);
+
+                // 2. Speak
+                if (audioEnabled) {
+                    const utterance = new SpeechSynthesisUtterance(lastMessage.text);
+                    utterance.pitch = 0.8;
+                    utterance.rate = 1.1;
+                    utterance.onstart = () => setIsSpeaking(true);
+                    utterance.onend = () => setIsSpeaking(false);
+                    window.speechSynthesis.speak(utterance);
+                }
             }
         }
     }, [interview.transcript, audioEnabled]);
+
+    // Timer Countdown
+    useEffect(() => {
+        let interval: any;
+        // Pause timer if listening (recording)
+        if (timeLeft > 0 && !isFinished && !isSpeaking && !isListening) {
+            interval = setInterval(() => {
+                setTimeLeft(prev => prev - 1);
+            }, 1000);
+        } else if (timeLeft === 0 && !isFinished && !isSpeaking && interview.transcript.length > 0) {
+            // Time ran out!
+            // Optional: Auto-submit or warn
+        }
+        return () => clearInterval(interval);
+    }, [timeLeft, isFinished, isSpeaking, isListening]);
 
     useEffect(() => {
         if (scrollRef.current) {
@@ -178,22 +274,32 @@ const AIChatConsole: React.FC<{ interview: Interview }> = ({ interview }) => {
         if (!input.trim()) return;
         submitInterviewResponse(interview.id, input);
         setInput('');
+        setTimeLeft(0); // Stop timer while waiting
     };
 
     const toggleListening = () => {
         if (isListening) {
+            // STOP RECORDING
             recognitionRef.current?.stop();
+            setIsListening(false);
+            // Auto submit when stopping recording
+            if (input.trim().length > 0) {
+                handleSend();
+            }
         } else {
+            // START RECORDING
             setInput('');
-            recognitionRef.current?.start();
-            setIsListening(true);
+            try {
+                recognitionRef.current?.start();
+                setIsListening(true);
+            } catch (e) {
+                console.error("Mic start error", e);
+            }
         }
     };
 
-    const isFinished = interview.status === 'DECISION_PENDING' || interview.status === 'COMPLETED';
-
     return (
-        <div className="flex flex-col h-[700px] bg-slate-900 border border-slate-800 rounded-xl overflow-hidden shadow-2xl">
+        <div className={`flex flex-col h-[700px] bg-slate-900 border rounded-xl overflow-hidden shadow-2xl transition-all ${isProctored ? 'border-indigo-500 ring-2 ring-indigo-500/20' : 'border-slate-800'}`}>
             {/* Header */}
             <div className="p-4 bg-slate-800 border-b border-slate-700 flex justify-between items-center shrink-0">
                 <div className="flex items-center gap-3">
@@ -218,7 +324,29 @@ const AIChatConsole: React.FC<{ interview: Interview }> = ({ interview }) => {
                        
                     </div>
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-4">
+                    {!isFinished && timeLeft > 0 && (
+                        <div className={`flex items-center gap-2 px-3 py-1 bg-slate-900 rounded-full border border-slate-700 ${isListening ? 'border-indigo-500 shadow-[0_0_10px_rgba(99,102,241,0.3)]' : ''}`}>
+                            {isListening ? (
+                                <span className="text-xs text-indigo-400 font-bold uppercase animate-pulse">Timer Paused</span>
+                            ) : (
+                                <>
+                                    <Hourglass size={14} className={timeLeft < 15 ? 'text-rose-500 animate-pulse' : 'text-slate-400'} />
+                                    <span className={`text-sm font-mono font-bold ${timeLeft < 15 ? 'text-rose-500' : 'text-white'}`}>
+                                        {Math.floor(timeLeft / 60)}:{(timeLeft % 60).toString().padStart(2, '0')}
+                                    </span>
+                                </>
+                            )}
+                        </div>
+                    )}
+                    
+                    {isProctored && (
+                        <div className="flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-bold bg-indigo-600 text-white shadow-[0_0_15px_rgba(99,102,241,0.5)]">
+                            <Shield size={14} />
+                            Proctor Active
+                        </div>
+                    )}
+
                     <button 
                         onClick={() => {
                             setAudioEnabled(!audioEnabled);
@@ -229,11 +357,28 @@ const AIChatConsole: React.FC<{ interview: Interview }> = ({ interview }) => {
                     >
                         {audioEnabled ? <Volume2 size={20} /> : <VolumeX size={20} />}
                     </button>
-                    <Badge color="purple">Context Active</Badge>
                 </div>
             </div>
 
-            <div className="flex-1 flex flex-col lg:flex-row min-h-0">
+            <div className="flex-1 flex flex-col lg:flex-row min-h-0 relative">
+                {/* Proctor Violation Overlay (If any) */}
+                {violations.length > 0 && isProctored && (
+                    <div className="absolute top-4 right-4 z-50 bg-rose-950/90 border border-rose-500/50 rounded-lg p-3 w-64 shadow-2xl backdrop-blur-md animate-in slide-in-from-top-5">
+                        <div className="flex items-center gap-2 text-rose-400 mb-2 border-b border-rose-800 pb-1">
+                            <ShieldAlert size={16} />
+                            <span className="font-bold text-xs uppercase">Security Alert</span>
+                        </div>
+                        <div className="space-y-1 max-h-32 overflow-y-auto custom-scrollbar">
+                            {violations.map((v, i) => (
+                                <div key={i} className="text-[10px] text-rose-200 flex justify-between">
+                                    <span>{v.type}</span>
+                                    <span className="opacity-70">{v.time}</span>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                )}
+
                 {/* Left Panel: Video Feed */}
                 <div className="lg:w-[400px] bg-black p-4 flex flex-col gap-4 border-b lg:border-b-0 lg:border-r border-slate-800">
                     <div className="relative flex-1 bg-slate-900 rounded-xl overflow-hidden border border-slate-800 group">
@@ -260,11 +405,23 @@ const AIChatConsole: React.FC<{ interview: Interview }> = ({ interview }) => {
                              </div>
                         )}
 
+                        {/* Proctor Watermark */}
+                        {isProctored && (
+                            <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 opacity-10 pointer-events-none">
+                                <Shield size={120} className="text-white" />
+                            </div>
+                        )}
+
                         {/* Overlays */}
                         <div className="absolute top-3 left-3 flex gap-2">
                             <div className="px-2 py-0.5 bg-red-500/90 text-white text-[10px] font-bold rounded flex items-center gap-1 animate-pulse">
                                 <span className="w-1.5 h-1.5 bg-white rounded-full"></span> REC
                             </div>
+                            {isProctored && (
+                                <div className="px-2 py-0.5 bg-indigo-600/90 text-white text-[10px] font-bold rounded flex items-center gap-1">
+                                    <Shield size={8} /> MONITORED
+                                </div>
+                            )}
                         </div>
 
                         {/* Controls */}
@@ -342,21 +499,30 @@ const AIChatConsole: React.FC<{ interview: Interview }> = ({ interview }) => {
                             <button 
                                 onClick={toggleListening}
                                 disabled={isFinished}
-                                className={`p-3 rounded-lg transition-all ${isListening ? 'bg-red-500 text-white animate-pulse' : 'bg-slate-700 text-slate-300 hover:bg-slate-600'}`}
-                                title="Speak Answer (STT)"
+                                className={`p-3 rounded-lg transition-all flex items-center gap-2 font-bold text-xs ${isListening ? 'bg-red-500 text-white hover:bg-red-600 shadow-[0_0_15px_rgba(239,68,68,0.5)]' : 'bg-slate-700 text-slate-300 hover:bg-slate-600'}`}
+                                title={isListening ? "Stop & Submit" : "Click to Record"}
                             >
-                                {isListening ? <MicOff size={18} /> : <Mic size={18} />}
+                                {isListening ? (
+                                    <>
+                                        <Square size={18} className="fill-current" /> Stop
+                                    </>
+                                ) : (
+                                    <>
+                                        <Mic size={18} /> Record
+                                    </>
+                                )}
                             </button>
                             <input 
                                 type="text" 
                                 value={input}
                                 onChange={(e) => setInput(e.target.value)}
                                 onKeyDown={(e) => e.key === 'Enter' && !isFinished && handleSend()}
-                                placeholder={isListening ? "Listening..." : isFinished ? "Session ended." : "Type your answer..."}
+                                onPaste={(e) => isProctored && e.preventDefault()} // Disable Paste in Proctor Mode
+                                placeholder={isListening ? "Recording answer..." : isFinished ? "Session ended." : isProctored ? "Type your answer... (Copy/Paste Disabled)" : "Type your answer..."}
                                 disabled={isFinished || isListening}
                                 className="flex-1 bg-slate-900 border border-slate-700 rounded-lg px-4 py-3 text-white focus:border-indigo-500 outline-none disabled:opacity-50"
                             />
-                            <Button onClick={handleSend} disabled={!input.trim() || isFinished}>
+                            <Button onClick={handleSend} disabled={!input.trim() || isFinished || isListening}>
                                 <Send size={18} />
                             </Button>
                         </div>
@@ -369,6 +535,7 @@ const AIChatConsole: React.FC<{ interview: Interview }> = ({ interview }) => {
 
 const InterviewsPage: React.FC = () => {
     const { currentUser, interviews, startInterview, pauseInterview } = useSimulation();
+    const [useProctor, setUseProctor] = useState(true); // Default to on
 
     // Filter interviews for the current user
     const myInterviews = interviews.filter(i => i.candidateId === currentUser?.id);
@@ -386,7 +553,7 @@ const InterviewsPage: React.FC = () => {
                              &larr; Exit Session (Progress Saved)
                          </div>
                      </div>
-                     <AIChatConsole interview={activeInterview} />
+                     <AIChatConsole interview={activeInterview} isProctored={useProctor} />
                      <div className="mt-6">
                          <Card title="Interview Status">
                             <div className="space-y-4">
@@ -412,7 +579,26 @@ const InterviewsPage: React.FC = () => {
                     <ResumeUploader />
                     
                     <div className="mt-8">
-                        <h3 className="text-xl font-bold text-white mb-4">Upcoming Schedule</h3>
+                        <div className="flex justify-between items-end mb-4">
+                            <h3 className="text-xl font-bold text-white">Upcoming Schedule</h3>
+                            {/* Dashboard Toggle for Proctor Mode */}
+                            <button
+                                onClick={() => setUseProctor(!useProctor)}
+                                className={`flex items-center gap-3 px-4 py-2 rounded-lg border transition-all ${useProctor ? 'bg-indigo-900/30 border-indigo-500/50 text-white' : 'bg-slate-800 border-slate-700 text-slate-400'}`}
+                            >
+                                <div className={`w-8 h-4 rounded-full relative transition-colors ${useProctor ? 'bg-indigo-500' : 'bg-slate-600'}`}>
+                                    <div className={`absolute top-0.5 left-0.5 w-3 h-3 bg-white rounded-full transition-transform ${useProctor ? 'translate-x-4' : ''}`}></div>
+                                </div>
+                                <div className="text-left">
+                                    <div className="text-xs font-bold flex items-center gap-1">
+                                        {useProctor ? <Shield size={12} /> : <EyeOff size={12} />}
+                                        {useProctor ? 'Proctoring Enabled' : 'Normal Mode'}
+                                    </div>
+                                    <div className="text-[10px] opacity-70">Monitors fullscreen & focus</div>
+                                </div>
+                            </button>
+                        </div>
+
                         {myInterviews.length === 0 ? (
                             <div className="p-8 bg-slate-900 border border-slate-800 rounded-xl text-center text-slate-500">
                                 No interviews scheduled.

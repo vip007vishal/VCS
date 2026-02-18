@@ -1,3 +1,4 @@
+
 export enum Role {
   USER = 'USER',
   MANAGER = 'MANAGER',
@@ -43,6 +44,14 @@ export interface User {
   fieldOfInterest?: FieldOfInterest;
 }
 
+export interface AIAttributes {
+  roleType: 'MANAGER' | 'COLLABORATOR';
+  confidence: number;
+  reliability: number; // 0-100, determines failure rate
+  mood: 'Normal' | 'Overloaded' | 'Idle' | 'Unresponsive';
+  failureProbability: number; // 0-1 (e.g. 0.05 is 5%)
+}
+
 export interface Employee {
   id: string;
   name: string;
@@ -53,16 +62,22 @@ export interface Employee {
   isAi: boolean;
   avatar?: string;
   risk?: 'Low' | 'Medium' | 'High';
+  aiAttributes?: AIAttributes;
 }
 
 export interface Task {
   id: string;
   title: string;
+  description?: string;
+  deliverable?: string;
   assigneeId: string | 'AI' | null;
   status: TaskStatus;
   difficulty: number; // 1-10
   aiConfidence?: number;
   isAiGenerated: boolean;
+  managerType?: 'AI' | 'HUMAN';
+  justification?: string; // User's answer to "Why did you choose this approach?"
+  aiFeedback?: string; // Structured feedback from AI Manager
 }
 
 export interface Company {
@@ -122,6 +137,11 @@ export interface Resume {
 
 export type InterviewPhase = 'INTRO' | 'TECHNICAL_RESUME' | 'DEEP_DIVE' | 'SCENARIO' | 'BEHAVIORAL' | 'CLOSING' | 'COMPLETED';
 
+export interface Violation {
+  type: string;
+  timestamp: number;
+}
+
 export interface Interview {
   id: string;
   candidateId: string;
@@ -141,4 +161,25 @@ export interface Interview {
   feedback?: string;
   currentPhase: InterviewPhase;
   questionIndex: number;
+  violations?: Violation[]; // Track proctoring breaches
+}
+
+// --- EDITOR TYPES ---
+
+export interface EditorFile {
+  id: string;
+  name: string;
+  language: 'javascript' | 'typescript' | 'html' | 'css' | 'json' | 'markdown' | 'python';
+  content: string;
+  isFolder?: boolean;
+  children?: EditorFile[];
+  isOpen?: boolean;
+  isModified?: boolean;
+  parentId?: string | null;
+}
+
+export interface TerminalLog {
+  type: 'info' | 'error' | 'success' | 'warning' | 'command';
+  message: string;
+  timestamp: number;
 }

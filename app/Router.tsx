@@ -1,3 +1,4 @@
+
 import React from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { useSimulation } from '../context/SimulationContext';
@@ -39,6 +40,7 @@ import CompaniesManagementPage from '../pages/CompaniesManagementPage';
 import AIControlPanel from '../pages/AIControlPanel';
 import FraudPanel from '../pages/FraudPanel';
 import ResumeValidationPage from '../pages/ResumeValidationPage';
+import EditorPage from '../pages/EditorPage';
 
 const PrivateRoute: React.FC<{ children: React.ReactNode; roles?: Role[] }> = ({ children, roles }) => {
   const { currentUser } = useSimulation();
@@ -76,6 +78,11 @@ export const AppRouter: React.FC = () => {
         <PrivateRoute>
           <RoleBasedDashboard />
         </PrivateRoute>
+      } />
+
+      {/* Editor Route (No Layout - Full Screen) */}
+      <Route path="/dashboard/editor/:taskId" element={
+        <EditorPage /> 
       } />
 
       {/* Common Authenticated Routes */}

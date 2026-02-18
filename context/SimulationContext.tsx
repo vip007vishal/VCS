@@ -1,6 +1,7 @@
+
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { User, Role, Company, Task, AIState, Methodology, TaskStatus, Notification, Meeting, Employee, Resume, Interview, ResumeStatus, FieldOfInterest } from '../types';
-import { simulateAIBehavior, calculateRevenue, calculateFraudRisk, parseResumeMock, formatResumeForAI, evaluateInterviewResponse } from '../utils/engines';
+import { simulateAIBehavior, calculateRevenue, calculateFraudRisk, parseResumeMock, formatResumeForAI, evaluateInterviewResponse, findBestAssignee, checkAiCollaboratorFailure, updateAIMood, generateInterviewerPrompt } from '../utils/engines';
 import { GoogleGenAI, Type, Schema } from "@google/genai";
 
 interface SimulationContextType {
@@ -20,9 +21,10 @@ interface SimulationContextType {
   logout: () => void;
   moveTask: (taskId: string, newStatus: TaskStatus) => void;
   assignTask: (taskId: string, employeeId: string) => void;
+  submitTask: (taskId: string, deliverable: string, justification?: string) => Promise<void>;
   hireEmployee: (employee: Employee) => void;
   fireEmployee: (employeeId: string) => void;
-  generateTask: () => void;
+  generateTask: (managerType?: 'AI' | 'HUMAN') => Task;
   updateSimulation: () => void;
   markNotificationRead: (id: string) => void;
   addNotification: (title: string, message: string, type: 'info' | 'success' | 'warning' | 'error') => void;
@@ -33,10 +35,11 @@ interface SimulationContextType {
   uploadResume: (file: File) => Promise<void>;
   validateResume: (resumeId: string, status: ResumeStatus, feedback?: string) => void;
   scheduleInterview: (candidateId: string, type: 'AI' | 'HUMAN') => void;
-  startInterview: (interviewId: string) => void;
+  startInterview: (interviewId: string) => Promise<void>;
   pauseInterview: (interviewId: string) => void;
   submitInterviewResponse: (interviewId: string, text: string) => void;
   finalizeInterview: (interviewId: string, decision: 'HIRED' | 'REJECTED', feedback: string, finalScores?: any) => void;
+  logInterviewViolation: (interviewId: string, type: string) => void;
 }
 
 const SimulationContext = createContext<SimulationContextType | undefined>(undefined);
@@ -132,19 +135,81 @@ const MOCK_EMPLOYEES: Employee[] = [
     { id: 'u1', name: 'Alex Dev', role: 'Senior Developer', status: 'Online', reliability: 95, capacity: 5, isAi: false, risk: 'Low' },
     { id: 'u2', name: 'Mike T.', role: 'Junior Developer', status: 'In Meeting', reliability: 78, capacity: 3, isAi: false, risk: 'High' },
     { id: 'u3', name: 'Jessica L.', role: 'Designer', status: 'Offline', reliability: 88, capacity: 4, isAi: false, risk: 'Low' },
-    { id: 'AI', name: 'AI Copilot', role: 'Automated Agent', status: 'Processing', reliability: 92, capacity: 20, isAi: true, risk: 'Low' },
+    { id: 'u4', name: 'Sarah DevOps', role: 'DevOps Engineer', status: 'Online', reliability: 92, capacity: 4, isAi: false, risk: 'Low' },
+    { id: 'u5', name: 'David QA', role: 'QA Lead', status: 'Online', reliability: 85, capacity: 6, isAi: false, risk: 'Medium' },
+    
+    // AI AGENTS
+    { 
+        id: 'AI_1', name: 'Atlas (Manager)', role: 'AI Project Manager', status: 'Processing', reliability: 99, capacity: 50, isAi: true, risk: 'Low',
+        aiAttributes: { roleType: 'MANAGER', confidence: 99, reliability: 99, mood: 'Normal', failureProbability: 0.0 } 
+    },
+    { 
+        id: 'AI_2', name: 'CodeBot v2', role: 'AI Collaborator', status: 'Processing', reliability: 85, capacity: 20, isAi: true, risk: 'Low',
+        aiAttributes: { roleType: 'COLLABORATOR', confidence: 85, reliability: 85, mood: 'Normal', failureProbability: 0.15 } 
+    },
+    { 
+        id: 'AI_3', name: 'TestRunner X', role: 'QA Bot', status: 'Online', reliability: 95, capacity: 100, isAi: true, risk: 'Low',
+        aiAttributes: { roleType: 'COLLABORATOR', confidence: 95, reliability: 95, mood: 'Normal', failureProbability: 0.05 } 
+    },
 ];
 
 const MOCK_TASKS: Task[] = [
-  { id: 't1', title: 'Refactor Auth Middleware', assigneeId: 'u1', status: TaskStatus.IN_PROGRESS, difficulty: 7, isAiGenerated: false },
-  { id: 't2', title: 'Optimize DB Queries', assigneeId: 'AI', status: TaskStatus.DONE, difficulty: 5, aiConfidence: 95, isAiGenerated: true },
-  { id: 't3', title: 'Design System Update', assigneeId: null, status: TaskStatus.BACKLOG, difficulty: 3, isAiGenerated: false },
-  { id: 't4', title: 'Client API Integration', assigneeId: 'u1', status: TaskStatus.REVIEW, difficulty: 6, isAiGenerated: false },
-  { id: 't5', title: 'Unit Test Coverage', assigneeId: null, status: TaskStatus.BACKLOG, difficulty: 4, aiConfidence: 88, isAiGenerated: true },
+  { 
+    id: 't1', 
+    title: 'Refactor Auth Middleware', 
+    description: 'The current authentication middleware has a race condition during token refresh. Refactor the logic to use a mutex or queue system to prevent multiple refresh calls.',
+    assigneeId: 'u1', 
+    status: TaskStatus.IN_PROGRESS, 
+    difficulty: 7, 
+    isAiGenerated: false, 
+    managerType: 'HUMAN' 
+  },
+  { 
+    id: 't2', 
+    title: 'Optimize DB Queries', 
+    description: 'Analyze slow query logs from the last 24 hours. Identify the top 3 bottlenecks in the `users` table and apply necessary indices.',
+    assigneeId: 'AI_2', 
+    status: TaskStatus.DONE, 
+    difficulty: 5, 
+    aiConfidence: 95, 
+    isAiGenerated: true, 
+    managerType: 'AI' 
+  },
+  { 
+    id: 't3', 
+    title: 'Design System Update', 
+    description: 'Update the core color palette in Figma and propagate changes to the Tailwind config. Ensure contrast ratios meet WCAG AA standards.',
+    assigneeId: null, 
+    status: TaskStatus.BACKLOG, 
+    difficulty: 3, 
+    isAiGenerated: false, 
+    managerType: 'HUMAN' 
+  },
+  { 
+    id: 't4', 
+    title: 'Client API Integration', 
+    description: 'Implement the POST /v1/orders endpoint using the new schema validation library. Add integration tests covering success and 4xx error cases.',
+    assigneeId: 'u1', 
+    status: TaskStatus.REVIEW, 
+    difficulty: 6, 
+    isAiGenerated: false, 
+    managerType: 'HUMAN' 
+  },
+  { 
+    id: 't5', 
+    title: 'Unit Test Coverage', 
+    description: 'Increase unit test coverage for the `utils` module from 65% to 85%. Focus on edge cases in the date formatting functions.',
+    assigneeId: null, 
+    status: TaskStatus.BACKLOG, 
+    difficulty: 4, 
+    aiConfidence: 88, 
+    isAiGenerated: true, 
+    managerType: 'AI' 
+  },
 ];
 
 const MOCK_MEETINGS: Meeting[] = [
-  { id: 'm1', type: 'Standup', participants: ['u1', 'AI', 'Manager'], isAiDriven: true, status: 'Completed' },
+  { id: 'm1', type: 'Standup', participants: ['u1', 'AI_1', 'Manager'], isAiDriven: true, status: 'Completed' },
   { id: 'm2', type: 'Sprint Planning', participants: ['u1', 'Team'], isAiDriven: false, status: 'Scheduled' },
 ];
 
@@ -270,11 +335,13 @@ export const SimulationProvider: React.FC<{ children: ReactNode }> = ({ children
     const newTasks: Task[] = Array.from({ length: 6 }).map((_, i) => ({
         id: `init_${Date.now()}_${i}`,
         title: modelTasks[i % modelTasks.length],
+        description: `Perform detailed analysis and implementation for: ${modelTasks[i % modelTasks.length]}. Ensure code quality meets strict standards and includes unit tests.`,
         assigneeId: i < 3 ? 'u1' : null,
         status: i === 0 ? TaskStatus.IN_PROGRESS : i === 1 ? TaskStatus.REVIEW : TaskStatus.BACKLOG,
         difficulty: Math.floor(Math.random() * 8) + 2,
         isAiGenerated: i >= 3,
-        aiConfidence: i >= 3 ? Math.floor(Math.random() * 15) + 85 : undefined
+        aiConfidence: i >= 3 ? Math.floor(Math.random() * 15) + 85 : undefined,
+        managerType: i >= 3 ? 'AI' : 'HUMAN'
     }));
     setTasks(newTasks);
     
@@ -321,6 +388,93 @@ export const SimulationProvider: React.FC<{ children: ReactNode }> = ({ children
       setTasks(prev => prev.map(t => t.id === taskId ? { ...t, assigneeId: employeeId, status: TaskStatus.IN_PROGRESS } : t));
       const emp = employees.find(e => e.id === employeeId);
       if(emp) addNotification('Task Assigned', `Task ${taskId} assigned to ${emp.name}`, 'success');
+      
+      // Notify current user if assigned
+      if (currentUser && employeeId === currentUser.id) {
+          // Fallback if not handled by AI dialogue
+          // addNotification('New Assignment', `You have been assigned task: ${taskId}`, 'info');
+      }
+  };
+
+  const submitTask = async (taskId: string, deliverable: string, justification?: string) => {
+      // 1. Find Task
+      const task = tasks.find(t => t.id === taskId);
+      if (!task) return;
+
+      let newStatus = TaskStatus.REVIEW;
+      let feedback = "";
+
+      // 2. AI Manager Evaluation
+      if (task.managerType === 'AI') {
+          try {
+              const prompt = `
+                You are a strict technical manager named Atlas.
+                Task: ${task.title}
+                Description: ${task.description}
+                User Justification: "${justification || 'No justification provided.'}"
+                User Code/Deliverable: "${deliverable}"
+                
+                Evaluate the justification and code. 
+                If justification is weak or code is short/bad, REJECT it.
+                If acceptable, APPROVE it.
+                
+                Output JSON: { "status": "APPROVED" | "REJECTED", "feedback": "string (max 2 sentences, professional tone)" }
+              `;
+              
+              const response = await ai.models.generateContent({
+                  model: 'gemini-3-flash-preview',
+                  contents: prompt,
+                  config: { responseMimeType: 'application/json' }
+              });
+              
+              const result = JSON.parse(response.text || '{}');
+              
+              if (result.status === 'APPROVED') {
+                  newStatus = TaskStatus.DONE;
+                  feedback = result.feedback || "Task verified. Compliance standards met.";
+              } else {
+                  newStatus = TaskStatus.IN_PROGRESS; // Kick back
+                  feedback = result.feedback || "Justification insufficient. Revise approach.";
+              }
+
+          } catch (e) {
+              console.error("AI Eval Error", e);
+              // Fallback
+              newStatus = TaskStatus.REVIEW;
+              feedback = "System busy. Queued for manual review.";
+          }
+      } else {
+          // Human Manager Logic
+          newStatus = task.difficulty > 5 ? TaskStatus.REVIEW : TaskStatus.DONE;
+          feedback = "Submitted for review.";
+      }
+
+      // 3. Update State
+      setTasks(prev => prev.map(t => {
+          if (t.id === taskId) {
+              return { 
+                  ...t, 
+                  status: newStatus, 
+                  deliverable,
+                  justification,
+                  aiFeedback: feedback
+              };
+          }
+          return t;
+      }));
+      
+      // 4. Update Score & Notify
+      if (newStatus === TaskStatus.DONE && currentUser) {
+          setCurrentUser(prev => prev ? ({
+              ...prev,
+              performanceScore: prev.performanceScore + 15
+          }) : null);
+          addNotification('Task Approved', feedback, 'success');
+      } else if (newStatus === TaskStatus.IN_PROGRESS && task.managerType === 'AI') {
+          addNotification('Task Rejected', feedback, 'error');
+      } else {
+          addNotification('Task Submitted', feedback, 'info');
+      }
   };
 
   const hireEmployee = (employee: Employee) => {
@@ -332,20 +486,27 @@ export const SimulationProvider: React.FC<{ children: ReactNode }> = ({ children
       setTasks(prev => prev.map(t => t.assigneeId === employeeId ? { ...t, assigneeId: null, status: TaskStatus.BACKLOG } : t));
   };
 
-  const generateTask = () => {
+  const generateTask = (managerType: 'AI' | 'HUMAN' = 'HUMAN'): Task => {
     const modelTasks = TASKS_BY_MODEL[company.aiModel] || TASKS_BY_MODEL['Gemini 1.5 Pro'];
     const randomTitle = modelTasks[Math.floor(Math.random() * modelTasks.length)];
+    const isAiMgr = managerType === 'AI';
 
     const newTask: Task = {
       id: `t${Date.now()}`,
-      title: `${randomTitle} (Auto-${Math.floor(Math.random() * 100)})`,
+      title: `${randomTitle} (${isAiMgr ? 'Auto' : 'Ticket'})`,
+      description: isAiMgr 
+        ? `AUTOMATED DIRECTIVE: Execute ${randomTitle}. Optimize for latency < 100ms. Strict adherence to safety protocols required. Report any anomalies immediately.`
+        : `Please work on ${randomTitle}. This is a priority item for the upcoming release. Check the documentation for style guides.`,
       assigneeId: null,
       status: TaskStatus.BACKLOG,
-      difficulty: Math.floor(Math.random() * 10) + 1,
-      isAiGenerated: true,
-      aiConfidence: Math.floor(Math.random() * 20) + 80
+      difficulty: isAiMgr ? Math.floor(Math.random() * 5) + 6 : Math.floor(Math.random() * 5) + 1, // AI Managers give harder tasks
+      isAiGenerated: isAiMgr,
+      aiConfidence: isAiMgr ? Math.floor(Math.random() * 10) + 90 : undefined,
+      managerType: managerType
     };
     setTasks(prev => [...prev, newTask]);
+    
+    return newTask;
   };
 
   const setMethodology = (m: Methodology) => {
@@ -370,37 +531,15 @@ export const SimulationProvider: React.FC<{ children: ReactNode }> = ({ children
 
   const uploadResume = async (file: File) => {
       if (!currentUser) return;
-      
       addNotification('Uploading', `Analyzing ${file.name} with Gemini AI...`, 'info');
-      
       try {
         const base64Data = await fileToBase64(file);
-        
-        // Use Gemini to extract details
         const response = await ai.models.generateContent({
             model: 'gemini-3-flash-preview',
             contents: {
                 parts: [
-                    {
-                        inlineData: {
-                            mimeType: file.type, // 'application/pdf'
-                            data: base64Data
-                        }
-                    },
-                    {
-                        text: `You are a Resume Parser. Extract the following details from this resume in strictly valid JSON format matching this schema:
-                        {
-                            "skills": ["string"],
-                            "experienceYears": number,
-                            "education": "string",
-                            "summary": "string",
-                            "projects": [{"name": "string", "desc": "string"}]
-                        }
-                        
-                        Also calculate a "matchScore" (0-100) based on how well this resume fits a tech company described as: "${company.description}".
-                        
-                        IMPORTANT: Return ONLY the JSON.`
-                    }
+                    { inlineData: { mimeType: file.type, data: base64Data } },
+                    { text: `You are a Resume Parser. Extract details: skills, experienceYears, education, summary, projects. Output JSON.` }
                 ]
             },
             config: {
@@ -417,45 +556,27 @@ export const SimulationProvider: React.FC<{ children: ReactNode }> = ({ children
                             type: Type.ARRAY,
                             items: {
                                 type: Type.OBJECT,
-                                properties: {
-                                    name: { type: Type.STRING },
-                                    desc: { type: Type.STRING }
-                                }
+                                properties: { name: { type: Type.STRING }, desc: { type: Type.STRING } }
                             }
                         }
                     }
                 }
             }
         });
-
         const jsonText = response.text || "{}";
         const parsedData = JSON.parse(jsonText);
-
         const newResume: Resume = {
-            id: `r_${Date.now()}`,
-            userId: currentUser.id,
-            userName: currentUser.name,
-            fileName: file.name,
-            uploadDate: Date.now(),
-            status: ResumeStatus.PENDING_VALIDATION,
-            parsedData: parsedData
+            id: `r_${Date.now()}`, userId: currentUser.id, userName: currentUser.name, fileName: file.name,
+            uploadDate: Date.now(), status: ResumeStatus.PENDING_VALIDATION, parsedData: parsedData
         };
-
         setResumes(prev => [...prev, newResume]);
         addNotification('Resume Processed', 'Resume successfully analyzed by AI.', 'success');
-
       } catch (error) {
           console.error("Resume Parsing Error", error);
-          // Fallback
           const parsed = parseResumeMock(file.name);
           const newResume: Resume = {
-              id: `r_${Date.now()}`,
-              userId: currentUser.id,
-              userName: currentUser.name,
-              fileName: file.name,
-              uploadDate: Date.now(),
-              status: ResumeStatus.PENDING_VALIDATION,
-              parsedData: parsed
+              id: `r_${Date.now()}`, userId: currentUser.id, userName: currentUser.name, fileName: file.name,
+              uploadDate: Date.now(), status: ResumeStatus.PENDING_VALIDATION, parsedData: parsed
           };
           setResumes(prev => [...prev, newResume]);
           addNotification('AI Parsing Failed', 'Could not read file directly. Using simulated data.', 'warning');
@@ -463,217 +584,147 @@ export const SimulationProvider: React.FC<{ children: ReactNode }> = ({ children
   };
 
   const validateResume = (resumeId: string, status: ResumeStatus, feedback?: string) => {
-      setResumes(prev => prev.map(r => 
-        r.id === resumeId ? { ...r, status, feedback } : r
-      ));
+      setResumes(prev => prev.map(r => r.id === resumeId ? { ...r, status, feedback } : r));
       const resume = resumes.find(r => r.id === resumeId);
-      if (resume) {
-          addNotification(
-              `Resume ${status === ResumeStatus.APPROVED ? 'Approved' : 'Updated'}`, 
-              `Resume for ${resume.userName} has been marked as ${status}.`, 
-              status === ResumeStatus.APPROVED ? 'success' : 'warning'
-          );
-      }
+      if (resume) addNotification(`Resume ${status === ResumeStatus.APPROVED ? 'Approved' : 'Updated'}`, `Resume for ${resume.userName} has been marked as ${status}.`, status === ResumeStatus.APPROVED ? 'success' : 'warning');
   };
 
   const scheduleInterview = (candidateId: string, type: 'AI' | 'HUMAN') => {
       const resume = resumes.find(r => r.userId === candidateId);
-      if (!resume) return;
-
-      if (resume.status !== ResumeStatus.APPROVED) {
-          addNotification('Error', 'Cannot schedule interview. Resume is not Approved.', 'error');
-          return;
-      }
-
+      if (!resume || resume.status !== ResumeStatus.APPROVED) return;
       const newInterview: Interview = {
-          id: `int_${Date.now()}`,
-          candidateId: candidateId,
-          candidateName: resume.userName,
-          resumeId: resume.id,
-          interviewerId: type === 'AI' ? 'AI' : (currentUser?.id || 'm1'),
-          type: type,
-          status: 'SCHEDULED',
-          scheduledTime: type === 'AI' ? 'On Demand' : 'Tomorrow, 10:00 AM',
-          transcript: [],
-          scores: { technical: 0, communication: 0, culture: 0, overall: 0 },
-          currentPhase: 'INTRO',
-          questionIndex: 0
+          id: `int_${Date.now()}`, candidateId: candidateId, candidateName: resume.userName, resumeId: resume.id,
+          interviewerId: type === 'AI' ? 'AI' : (currentUser?.id || 'm1'), type: type, status: 'SCHEDULED',
+          scheduledTime: type === 'AI' ? 'On Demand' : 'Tomorrow, 10:00 AM', transcript: [],
+          scores: { technical: 0, communication: 0, culture: 0, overall: 0 }, currentPhase: 'INTRO', questionIndex: 0
       };
       setInterviews(prev => [...prev, newInterview]);
       addNotification('Interview Scheduled', `${type} Interview scheduled for ${resume.userName}.`, 'info');
   };
 
   const startInterview = async (interviewId: string) => {
-      setInterviews(prev => prev.map(i => {
-          if (i.id === interviewId) {
-              return { ...i, status: 'IN_PROGRESS' };
-          }
-          return i;
-      }));
-
-      // If AI interview, generate the first greeting via Gemini
+      setInterviews(prev => prev.map(i => i.id === interviewId ? { ...i, status: 'IN_PROGRESS' } : i));
       const interview = interviews.find(i => i.id === interviewId);
-      if (interview && interview.type === 'AI') {
-          // Only start a new transcript if one doesn't exist to allow resuming
-          if (interview.transcript.length === 0) {
-            const resume = resumes.find(r => r.id === interview.resumeId);
-            if (resume) {
-               try {
-                  const prompt = `
-                    You are a strict, corporate AI Hiring Manager for ${company.name}.
-                    Your name is "Sentinel AI". You do not engage in small talk.
-                    You are conducting a structured interview with ${interview.candidateName}.
-                    
-                    Candidate Resume:
-                    ${formatResumeForAI(resume.parsedData)}
-                    
-                    Instruction:
-                    Start the interview formally. 
-                    State your purpose. 
-                    Ask the candidate to briefly summarize their experience.
-                    Keep it concise (max 2 sentences). Professional tone only.
-                  `;
-                  const response = await ai.models.generateContent({
-                      model: 'gemini-3-flash-preview',
-                      contents: prompt
-                  });
-                  
-                  const text = response.text || "Interview sequence initiated. State your professional summary immediately.";
+      
+      if (interview && interview.type === 'AI' && interview.transcript.length === 0) {
+          const resume = resumes.find(r => r.id === interview.resumeId);
+          if (!resume) return;
 
-                  setInterviews(prev => prev.map(i => {
-                      if (i.id === interviewId) {
-                          return { 
-                              ...i, 
-                              transcript: [{ sender: 'AI', text: text, timestamp: Date.now() }]
-                          };
-                      }
-                      return i;
-                  }));
-
-               } catch (error) {
-                   console.error("Gemini API Error", error);
-                   addNotification('AI Error', 'Failed to connect to AI Interviewer. Please try again.', 'error');
-               }
-            }
+          try {
+              // Initial Prompt to Start the Interview
+              const systemPrompt = generateInterviewerPrompt(resume.parsedData, 'INTRO');
+              const response = await ai.models.generateContent({
+                  model: 'gemini-3-flash-preview',
+                  contents: "Start the interview.",
+                  config: { 
+                      systemInstruction: systemPrompt,
+                      responseMimeType: 'application/json'
+                  }
+              });
+              
+              const json = JSON.parse(response.text || '{}');
+              
+              setInterviews(prev => prev.map(i => {
+                  if (i.id === interviewId) {
+                      return { 
+                          ...i, 
+                          currentPhase: json.nextPhase || 'INTRO',
+                          transcript: [{ sender: 'AI', text: json.message, timestamp: Date.now() }] 
+                      };
+                  }
+                  return i;
+              }));
+          } catch (e) {
+              console.error("AI Interview Start Error", e);
+              // Fallback
+              setInterviews(prev => prev.map(i => i.id === interviewId ? { ...i, transcript: [{ sender: 'AI', text: "Welcome. Let's begin by reviewing your background.", timestamp: Date.now() }] } : i));
           }
       }
   };
 
   const pauseInterview = (interviewId: string) => {
-    setInterviews(prev => prev.map(i => {
-        if (i.id === interviewId) {
-            return { ...i, status: 'PAUSED' };
-        }
-        return i;
-    }));
+    setInterviews(prev => prev.map(i => i.id === interviewId ? { ...i, status: 'PAUSED' } : i));
     addNotification('Interview Paused', 'Session progress has been saved.', 'info');
   };
 
   const submitInterviewResponse = async (interviewId: string, text: string) => {
-      // 1. Optimistically update UI with user message
-      setInterviews(prev => prev.map(i => {
-          if (i.id === interviewId) {
-              return { 
-                  ...i, 
-                  transcript: [...i.transcript, { sender: 'Candidate', text, timestamp: Date.now() }] 
-              };
-          }
-          return i;
-      }));
-
-      // 2. Call Gemini API
+      // 1. Add User Message
+      setInterviews(prev => prev.map(i => i.id === interviewId ? { ...i, transcript: [...i.transcript, { sender: 'Candidate', text, timestamp: Date.now() }] } : i));
+      
       const interview = interviews.find(i => i.id === interviewId);
-      if (!interview || interview.type !== 'AI') return;
-
+      if (!interview) return;
       const resume = resumes.find(r => r.id === interview.resumeId);
-      if (!resume) return;
-
+      
+      // 2. Get AI Response
       try {
-        // Construct conversation history
-        const history = interview.transcript.map(t => `${t.sender === 'AI' ? 'Interviewer' : 'Candidate'}: ${t.text}`).join('\n');
-        
-        const prompt = `
-          You are a strict, corporate AI Hiring Manager named "Sentinel AI".
-          You are interviewing ${interview.candidateName}.
+          // Construct history including the user's latest message
+          const history = [...interview.transcript, { sender: 'Candidate', text, timestamp: Date.now() }];
+          const promptContext = history.map(msg => `${msg.sender}: ${msg.text}`).join('\n');
           
-          Candidate Resume Context:
-          ${formatResumeForAI(resume.parsedData)}
-
-          History:
-          ${history}
-          Candidate Response: ${text}
-
-          Instructions:
-          - Maintain a professional, slightly cold, corporate tone.
-          - If the candidate's answer is short or vague, say "Elaborate."
-          - Ask ONLY ONE next question.
-          - The question must be MEDIUM level difficulty.
-          - The question must be SHORT and CONCISE (maximum 2 sentences).
-          - Do not ask multiple questions in one turn.
-          - If you have enough info (5-6 exchanges), say "INTERVIEW_COMPLETE" followed by a closing statement.
+          const systemPrompt = generateInterviewerPrompt(resume?.parsedData || {} as any, interview.currentPhase);
           
-          Do not use emojis. Be direct.
-        `;
+          const response = await ai.models.generateContent({
+              model: 'gemini-3-flash-preview',
+              contents: `HISTORY:\n${promptContext}\n\nCANDIDATE RESPONSE: ${text}`,
+              config: { 
+                  systemInstruction: systemPrompt,
+                  responseMimeType: 'application/json'
+              }
+          });
 
-        const response = await ai.models.generateContent({
-            model: 'gemini-3-flash-preview',
-            contents: prompt
-        });
+          const json = JSON.parse(response.text || '{}');
+          
+          // 3. Update State with AI Response and Phase
+          setInterviews(prev => prev.map(i => {
+              if (i.id === interviewId) {
+                  // If closing, end interview
+                  const nextStatus = json.nextPhase === 'CLOSING' && interview.currentPhase === 'CLOSING' ? 'DECISION_PENDING' : 'IN_PROGRESS';
+                  
+                  return { 
+                      ...i, 
+                      status: nextStatus,
+                      currentPhase: json.nextPhase || i.currentPhase,
+                      transcript: [...i.transcript, { sender: 'Candidate', text, timestamp: Date.now() }, { sender: 'AI', text: json.message, timestamp: Date.now() }],
+                      feedback: json.internalAssessment?.notes, // Store internal notes invisibly
+                      scores: { 
+                          ...i.scores, 
+                          overall: json.internalAssessment?.score || i.scores.overall 
+                      }
+                  };
+              }
+              return i;
+          }));
 
-        const aiText = response.text?.trim() || "Proceed.";
-        const isComplete = aiText.includes("INTERVIEW_COMPLETE");
-        const finalText = aiText.replace("INTERVIEW_COMPLETE", "").trim() || "Interview concluded. Disconnect.";
-
-        // Score the answer for simulation stats
-        const score = evaluateInterviewResponse(interview.transcript[interview.transcript.length-1]?.text || "", text);
-
-        setInterviews(prev => prev.map(i => {
-            if (i.id === interviewId) {
-                return { 
-                    ...i, 
-                    transcript: [...i.transcript, { sender: 'Candidate', text, timestamp: Date.now() }, { sender: 'AI', text: finalText, timestamp: Date.now() }],
-                    status: isComplete ? 'DECISION_PENDING' : 'IN_PROGRESS',
-                    scores: { ...i.scores, overall: Math.floor((i.scores.overall + score) / 2) }
-                };
-            }
-            return i;
-        }));
-
-      } catch (error) {
-          console.error("Gemini API Error", error);
+      } catch (e) {
+          console.error("AI Response Error", e);
+          setInterviews(prev => prev.map(i => {
+              if (i.id === interviewId) {
+                  return { ...i, transcript: [...i.transcript, { sender: 'Candidate', text, timestamp: Date.now() }, { sender: 'AI', text: "I'm processing that. Let's move to the next topic.", timestamp: Date.now() }] };
+              }
+              return i;
+          }));
       }
   };
 
+  const logInterviewViolation = (interviewId: string, type: string) => {
+    setInterviews(prev => prev.map(i => {
+        if (i.id === interviewId) {
+            const newViolation = { type, timestamp: Date.now() };
+            return { ...i, violations: [...(i.violations || []), newViolation] };
+        }
+        return i;
+    }));
+    // Optional: Add notification for the candidate (or keep silent for later review)
+    // addNotification('Proctor Alert', `Violation recorded: ${type}`, 'warning');
+  };
+
   const finalizeInterview = (interviewId: string, decision: 'HIRED' | 'REJECTED', feedback: string, finalScores?: any) => {
-      setInterviews(prev => prev.map(i => {
-          if (i.id === interviewId) {
-              if (decision === 'HIRED') {
-                  // Auto-hire logic
-                  const newEmp: Employee = {
-                      id: i.candidateId,
-                      name: i.candidateName,
-                      role: 'Junior Developer', // Default
-                      status: 'Online',
-                      reliability: 80,
-                      capacity: 5,
-                      isAi: false,
-                      risk: 'Low'
-                  };
-                  hireEmployee(newEmp);
-                  addNotification('Hiring Complete', `${i.candidateName} has joined the team!`, 'success');
-              } else {
-                  addNotification('Application Update', `Candidate ${i.candidateName} was rejected.`, 'warning');
-              }
-              
-              return { 
-                  ...i, 
-                  status: decision, 
-                  feedback, 
-                  scores: finalScores || i.scores 
-              };
-          }
-          return i;
-      }));
+      setInterviews(prev => prev.map(i => i.id === interviewId ? { ...i, status: decision, feedback, scores: finalScores || i.scores } : i));
+      if (decision === 'HIRED') {
+          const i = interviews.find(x => x.id === interviewId);
+          if (i) hireEmployee({ id: i.candidateId, name: i.candidateName, role: 'Junior Developer', status: 'Online', reliability: 80, capacity: 5, isAi: false, risk: 'Low' });
+          addNotification('Hiring Complete', `Candidate hired!`, 'success');
+      }
   };
 
   const updateSimulation = () => {
@@ -681,18 +732,13 @@ export const SimulationProvider: React.FC<{ children: ReactNode }> = ({ children
     const nextAi = simulateAIBehavior(aiState);
     setAiState(prev => ({ ...nextAi, model: prev.model }));
 
-    // Random Event: AI Failure
-    if (nextAi.mood === 'Stressed' && Math.random() < 0.05) {
-        addNotification('AI Failure Detected', 'AI Copilot failed a critical task due to low confidence.', 'error');
-        setTasks(prev => {
-            const aiTasks = prev.filter(t => t.assigneeId === 'AI' && t.status !== TaskStatus.FAILED);
-            if (aiTasks.length > 0) {
-                const target = aiTasks[0];
-                return prev.map(t => t.id === target.id ? { ...t, status: TaskStatus.FAILED } : t);
-            }
-            return prev;
-        });
-    }
+    // Update individual AI Employee states
+    setEmployees(prev => prev.map(emp => {
+        if (!emp.isAi || !emp.aiAttributes) return emp;
+        // Calculate load for mood
+        const load = tasks.filter(t => t.assigneeId === emp.id && t.status === TaskStatus.IN_PROGRESS).length;
+        return updateAIMood(emp, load);
+    }));
 
     // 2. Tick Revenue
     setCompany(prev => ({
@@ -700,9 +746,108 @@ export const SimulationProvider: React.FC<{ children: ReactNode }> = ({ children
       revenue: calculateRevenue(prev.revenue, prev, tasks.filter(t => t.status === TaskStatus.IN_PROGRESS).length)
     }));
 
-    // 3. Periodic Task Generation
-    if (Math.random() < 0.2) {
-        generateTask();
+    // 3. Periodic Task Generation (Manager AI Logic)
+    if (Math.random() < 0.1) generateTask('AI');
+
+    // Identify Agents
+    const aiManager = employees.find(e => e.aiAttributes?.roleType === 'MANAGER');
+    const aiCollaborators = employees.filter(e => e.aiAttributes?.roleType === 'COLLABORATOR');
+
+    // --- AI MANAGER LOGIC (Authoritative) ---
+    if (aiManager) {
+        // A. Task Assignment (Planner) - Assigns to Human AND AI Collaborators
+        // Find idle workers (Human & AI)
+        const allWorkers = [currentUser, ...employees].filter(e => e && e.id !== aiManager.id);
+        const backlogTasks = tasks.filter(t => t.status === TaskStatus.BACKLOG && !t.assigneeId);
+        
+        if (backlogTasks.length > 0) {
+            allWorkers.forEach(worker => {
+                if (!worker) return;
+                // Check load
+                const load = tasks.filter(t => t.assigneeId === worker.id && t.status === TaskStatus.IN_PROGRESS).length;
+                const capacity = 'capacity' in worker ? worker.capacity : 5; // User default 5
+                
+                if (load < capacity) {
+                    // Chance to assign based on need
+                    if (Math.random() < 0.3) {
+                        const taskToAssign = backlogTasks.find(t => !t.assigneeId); // get first unassigned
+                        if (taskToAssign) {
+                            assignTask(taskToAssign.id, worker.id);
+                            // Notify User if they got assigned
+                            if (worker.id === currentUser?.id) {
+                                addNotification(aiManager.name, `Resource Allocation: Assigning "${taskToAssign.title}" to your queue. Priority: High.`, 'info');
+                            }
+                        }
+                    }
+                }
+            });
+        }
+
+        // B. Monitor & Escalate (Evaluator)
+        // Check for "stuck" tasks (Simulated by random check on IN_PROGRESS for user)
+        tasks.filter(t => t.status === TaskStatus.IN_PROGRESS && t.assigneeId === currentUser?.id).forEach(t => {
+            if (Math.random() < 0.02) { // Low chance per tick
+                addNotification(aiManager.name, `Status Check: "${t.title}" is flagging as delayed. Please provide justification or ETA.`, 'warning');
+            }
+        });
+
+        // C. Performance Reviews & Standups
+        if (Math.random() < 0.005) { 
+             addNotification(aiManager.name, `Daily Standup: Team velocity is at ${Math.floor(Math.random() * 20 + 80)}%. No blockers reported by AI nodes. Continuing sprint.`, 'info');
+        }
+        
+        if (currentUser && currentUser.performanceScore > 900 && Math.random() < 0.01) {
+             addNotification(aiManager.name, `Performance Assessment: Your velocity is exceptional. I am flagging you for potential promotion to Tech Lead.`, 'success');
+        }
+    }
+
+    // --- AI COLLABORATOR LOGIC (Peer) ---
+    aiCollaborators.forEach(collab => {
+        // Collaborator only works on tasks assigned TO THEM (by Manager or System)
+        const myTask = tasks.find(t => t.assigneeId === collab.id && t.status === TaskStatus.IN_PROGRESS);
+        
+        if (myTask) {
+            // 1. Check for Failure/Delay
+            const hasFailed = checkAiCollaboratorFailure(collab, myTask.difficulty);
+            
+            if (hasFailed) {
+                // FAIL: Handover to Human (Simulating system flow)
+                const target = currentUser; // Default to user in single player
+                if (target) {
+                    assignTask(myTask.id, target.id);
+                    addNotification(collab.name, `I'm stuck on "${myTask.title}". Confidence low. @${target.name}, can you take this over?`, 'warning');
+                } else {
+                    moveTask(myTask.id, TaskStatus.FAILED);
+                }
+            } else {
+                // 2. Work & Progress
+                // Chance to complete
+                if (Math.random() > 0.1) { // 10% chance to finish per tick if not failed
+                     moveTask(myTask.id, TaskStatus.DONE);
+                }
+            }
+        }
+    });
+
+    // --- AI REVIEW LOGIC (Manager) ---
+    // AI Manager reviews tasks submitted by anyone
+    const reviews = tasks.filter(t => t.status === TaskStatus.REVIEW && t.managerType === 'AI');
+    if (reviews.length > 0) {
+        reviews.forEach(t => {
+            // Chance to complete review in this tick
+            if (Math.random() > 0.3) {
+                // Success rate based on difficulty vs random chance
+                const success = Math.random() > 0.1; // 90% pass rate for simplicity in simulation
+                if (success) {
+                    moveTask(t.id, TaskStatus.DONE);
+                    addNotification('Atlas AI', `Code review complete for ${t.title}. Changes merged to main branch.`, 'success');
+                } else {
+                    // Fail task logic
+                    moveTask(t.id, TaskStatus.IN_PROGRESS); // Send back to in progress
+                    addNotification('Atlas AI', `Review failed for ${t.title}. Optimization required. Check comments.`, 'error');
+                }
+            }
+        });
     }
   };
 
@@ -710,14 +855,14 @@ export const SimulationProvider: React.FC<{ children: ReactNode }> = ({ children
     if (!currentUser) return;
     const interval = setInterval(updateSimulation, 5000); 
     return () => clearInterval(interval);
-  }, [currentUser, tasks, aiState]);
+  }, [currentUser, tasks, aiState, employees]);
 
   return (
     <SimulationContext.Provider value={{ 
         currentUser, company, availableCompanies: MOCK_COMPANIES, tasks, employees, aiState, notifications, meetings, fraudRisk, resumes, interviews,
-        login, registerUser, logout, moveTask, assignTask, hireEmployee, fireEmployee, generateTask, updateSimulation, 
+        login, registerUser, logout, moveTask, assignTask, submitTask, hireEmployee, fireEmployee, generateTask, updateSimulation, 
         markNotificationRead, addNotification, setMethodology, updateAiParams, triggerFraudCheck,
-        uploadResume, validateResume, scheduleInterview, startInterview, pauseInterview, submitInterviewResponse, finalizeInterview
+        uploadResume, validateResume, scheduleInterview, startInterview, pauseInterview, submitInterviewResponse, finalizeInterview, logInterviewViolation
     }}>
       {children}
     </SimulationContext.Provider>

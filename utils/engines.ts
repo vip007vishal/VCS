@@ -1,4 +1,5 @@
-import { Task, User, Company, TaskStatus, AIState, Resume, InterviewPhase, Interview } from '../types';
+
+import { Task, User, Company, TaskStatus, AIState, Resume, InterviewPhase, Interview, Employee } from '../types';
 
 // --- Scoring Engine ---
 export const calculateUserScore = (completedTasks: number, verificationLevel: number, reliability: number) => {
@@ -44,7 +45,8 @@ export const simulateAIBehavior = (currentAiState: AIState): AIState => {
   const newReliability = Math.max(0, Math.min(100, currentAiState.reliability + reliabilityChange));
 
   const actions = [
-    "Analyzing code structure...",
+    "Analyzing backlog priorities...",
+    "Balancing team workload...",
     "Optimizing database queries...",
     "Refactoring component tree...",
     "Running unit tests...",
@@ -64,6 +66,51 @@ export const simulateAIBehavior = (currentAiState: AIState): AIState => {
     lastAction: randomAction,
     model: currentAiState.model
   };
+};
+
+export const checkAiCollaboratorFailure = (employee: Employee, taskDifficulty: number): boolean => {
+    if (!employee.aiAttributes || employee.aiAttributes.roleType !== 'COLLABORATOR') return false;
+    
+    // 1. Base failure check from attributes
+    const baseChance = employee.aiAttributes.failureProbability; // e.g. 0.15
+    if (Math.random() < baseChance) return true;
+
+    // 2. Difficulty penalty (Hard tasks fail more often if reliability is low)
+    // If Reliability is 90, task diff 8 -> (90 - 24) = 66 threshold. Roll 70 = Fail.
+    const reliability = employee.aiAttributes.reliability;
+    const difficultyPenalty = taskDifficulty * 3;
+    const successThreshold = reliability - difficultyPenalty;
+    
+    // Normalize threshold to 0-100
+    const roll = Math.random() * 100;
+    
+    return roll > successThreshold;
+};
+
+export const updateAIMood = (employee: Employee, currentLoad: number): Employee => {
+    if (!employee.aiAttributes) return employee;
+
+    let newMood = employee.aiAttributes.mood;
+    
+    // Determine mood based on load
+    if (currentLoad > employee.capacity * 0.8) {
+        newMood = 'Overloaded';
+    } else if (currentLoad === 0) {
+        newMood = 'Idle';
+    } else {
+        newMood = 'Normal';
+    }
+
+    // Random "glitch" or unresponsiveness
+    if (Math.random() < 0.02) newMood = 'Unresponsive';
+
+    return {
+        ...employee,
+        aiAttributes: {
+            ...employee.aiAttributes,
+            mood: newMood
+        }
+    };
 };
 
 export const shouldTaskFail = (difficulty: number, aiConfidence: number): boolean => {
@@ -146,4 +193,108 @@ export const evaluateInterviewResponse = (question: string, answer: string): num
     score += (matches * 3);
 
     return Math.min(100, score);
+};
+
+// --- INTERVIEWER PROMPT GENERATOR ---
+export const generateInterviewerPrompt = (resume: Resume['parsedData'], currentPhase: InterviewPhase) => {
+    return `
+    You are a professional, formal Human Interviewer conducting a corporate interview.
+    
+    CANDIDATE RESUME:
+    ${formatResumeForAI(resume)}
+
+    INTERVIEW STRUCTURE (You are currently in ${currentPhase}):
+    1. INTRO: Greet professionally, set expectations (technical + behavioral).
+    2. TECHNICAL_RESUME: Ask about specific projects/skills on resume. Ask about architecture, challenges.
+    3. DEEP_DIVE: Verify authenticity. Ask "why" and "how". Detect exaggeration.
+    4. SCENARIO: Give a real-world problem related to their field. Evaluate thinking.
+    5. BEHAVIORAL: Teamwork, conflict, deadlines.
+    6. CLOSING: Polite closing.
+
+    BEHAVIORAL CONSTRAINTS:
+    - Act strictly as a professional human interviewer. NOT a chatbot.
+    - Tone: Formal, calm, neutral, respectful.
+    - Ask ONE question at a time. Wait for the answer.
+    - Do NOT give hints or answers.
+    - Do NOT praise excessively.
+    - If the candidate struggles, probe deeper, do not help.
+    - Adjust difficulty based on responses.
+
+    INSTRUCTIONS:
+    - Analyze the previous response.
+    - Determine the next question based on the resume and current phase.
+    - Output MUST be JSON.
+    
+    OUTPUT SCHEMA:
+    {
+      "message": "The string you speak to the candidate",
+      "nextPhase": "The phase for the NEXT turn (or keep current)",
+      "internalAssessment": {
+         "score": 0-100,
+         "notes": "Short internal evaluation of the last answer"
+      }
+    }
+    `;
+};
+
+// --- Auto-Assignment Engine ---
+
+export const findBestAssignee = (
+  task: Task, 
+  allEmployees: (Employee | User)[], 
+  currentTasks: Task[]
+): string | null => {
+  // Filter for potential candidates
+  const candidates = allEmployees.filter(emp => {
+      // 1. Must be Online or Processing (for AI)
+      const status = 'status' in emp ? emp.status : 'Online'; // Users are assumed online if in list
+      if (status === 'Offline' || status === 'In Meeting') return false;
+
+      // 2. Must have capacity
+      const empId = emp.id;
+      const activeLoad = currentTasks.filter(t => t.assigneeId === empId && t.status === TaskStatus.IN_PROGRESS).length;
+      const capacity = 'capacity' in emp ? emp.capacity : 5; // Default capacity for User is 5
+      
+      return activeLoad < capacity;
+  });
+
+  if (candidates.length === 0) return null;
+
+  // Scoring Logic: Find the "Best" fit
+  // Criteria: Lowest Load, then matching difficulty (Seniors get hard tasks)
+  let bestCandidate = candidates[0];
+  let bestScore = -1;
+
+  candidates.forEach(cand => {
+      let score = 0;
+      const candId = cand.id;
+      const activeLoad = currentTasks.filter(t => t.assigneeId === candId && t.status === TaskStatus.IN_PROGRESS).length;
+      const capacity = 'capacity' in cand ? cand.capacity : 5;
+      
+      // Prefer those with more free capacity
+      score += (capacity - activeLoad) * 10;
+
+      // AI Agents get a bonus for boring tasks or high confidence tasks
+      const isAi = 'isAi' in cand && cand.isAi;
+      if (isAi && task.isAiGenerated) score += 20;
+
+      // Difficulty Matching
+      // Assume "Senior" or "Manager" roles (or AI) handle high difficulty better
+      const role = 'role' in cand ? cand.role.toLowerCase() : 'user';
+      const isSenior = role.includes('senior') || role.includes('lead') || role.includes('manager') || isAi;
+      
+      if (task.difficulty > 7) {
+          if (isSenior) score += 30;
+          else score -= 20; // Penalize juniors for hard tasks
+      } else {
+          if (!isSenior) score += 10; // Prefer juniors for easy tasks
+      }
+
+      if (score > bestScore) {
+          bestScore = score;
+          bestCandidate = cand;
+      }
+  });
+
+  return bestCandidate.id;
 };

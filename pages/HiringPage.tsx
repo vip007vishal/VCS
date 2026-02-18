@@ -1,7 +1,8 @@
+
 import React, { useState } from 'react';
 import { useSimulation } from '../context/SimulationContext';
 import { Card, Button, Badge, Modal } from '../components/UI';
-import { UserPlus, Star, X, Check, FileText, MessageSquare, Bot, Clock, Video, Eye, Mic, List, User, AlertCircle } from 'lucide-react';
+import { UserPlus, Star, X, Check, FileText, MessageSquare, Bot, Clock, Video, Eye, Mic, List, User, AlertCircle, ShieldAlert, Shield } from 'lucide-react';
 import { Interview, Resume, ResumeStatus } from '../types';
 
 const HiringPage: React.FC = () => {
@@ -315,8 +316,31 @@ const HiringPage: React.FC = () => {
             {selectedInterview && viewMode === 'PIPELINE' && (
                 <Modal isOpen={!!selectedInterview} onClose={() => setSelectedInterview(null)} title={`Interview Log: ${selectedInterview.candidateName}`}>
                     <div className="space-y-4">
+                        
+                        {/* Security Report Section - Displays Violations if Proctor Mode was used */}
+                        {selectedInterview.violations && selectedInterview.violations.length > 0 && (
+                            <div className="p-3 bg-rose-950/30 border border-rose-900/50 rounded-lg animate-in slide-in-from-top-2">
+                                <h5 className="text-xs font-bold text-rose-400 uppercase mb-2 flex items-center gap-2">
+                                    <ShieldAlert size={14} /> Proctoring Violations Detected ({selectedInterview.violations.length})
+                                </h5>
+                                <div className="space-y-1 max-h-32 overflow-y-auto custom-scrollbar">
+                                    {selectedInterview.violations.map((v, i) => (
+                                        <div key={i} className="text-xs text-rose-300 flex justify-between p-1 hover:bg-rose-900/20 rounded">
+                                            <span>{v.type}</span>
+                                            <span className="opacity-70 font-mono">{new Date(v.timestamp).toLocaleTimeString()}</span>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+
                         <div className="bg-slate-900 p-4 rounded-lg border border-slate-800 h-64 overflow-y-auto custom-scrollbar">
-                            <h5 className="text-xs font-bold text-slate-500 uppercase mb-2">Transcript</h5>
+                            <div className="flex justify-between items-center mb-2">
+                                <h5 className="text-xs font-bold text-slate-500 uppercase">Transcript</h5>
+                                {(!selectedInterview.violations || selectedInterview.violations.length === 0) && (
+                                    <span className="text-[10px] text-emerald-500 flex items-center gap-1"><Shield size={10}/> Integrity Verified</span>
+                                )}
+                            </div>
                             <div className="space-y-3 text-sm">
                                 {selectedInterview.transcript.map((t, idx) => (
                                     <div key={idx} className={`flex gap-2 ${t.sender === 'AI' ? '' : 'flex-row-reverse'}`}>
