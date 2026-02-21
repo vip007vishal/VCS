@@ -10,7 +10,7 @@ const AboutPage: React.FC = () => {
         <div className="min-h-screen bg-slate-950 text-white">
             <nav className="max-w-7xl mx-auto px-6 py-6 flex justify-between items-center">
                 <div className="flex items-center gap-2 text-xl font-bold text-white cursor-pointer" onClick={() => navigate('/')}>
-                    <BrainCircuit className="text-indigo-500" /> SkillVerse AI
+                    <BrainCircuit className="text-indigo-500" /> WorkSphere
                 </div>
                 <Button variant="outline" onClick={() => navigate('/')}>
                     <ArrowLeft size={16} /> Back to Home
@@ -20,7 +20,7 @@ const AboutPage: React.FC = () => {
             <main className="max-w-4xl mx-auto px-6 py-12">
                 <h1 className="text-4xl font-bold mb-6">About the Simulation</h1>
                 <p className="text-xl text-slate-400 mb-12 leading-relaxed">
-                    SkillVerse AI is an advanced enterprise simulation platform designed to prepare professionals for the complexities of modern IT environments. By simulating Agile workflows, AI collaboration, and corporate hierarchy, we provide a safe sandbox to master real-world skills.
+                    WorkSphere is an advanced enterprise simulation platform designed to prepare professionals for the complexities of modern IT environments. By simulating Agile workflows, AI collaboration, and corporate hierarchy, we provide a safe sandbox to master real-world skills.
                 </p>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mb-16">
@@ -54,7 +54,7 @@ const AboutPage: React.FC = () => {
             </main>
             
             <footer className="border-t border-slate-800 py-8 text-center text-slate-500 text-sm">
-                &copy; 2024 SkillVerse AI. All rights reserved. System Version 1.0.4
+                &copy; 2024 WorkSphere. All rights reserved. System Version 1.0.4
             </footer>
         </div>
     );

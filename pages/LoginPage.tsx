@@ -35,7 +35,7 @@ const LoginPage: React.FC = () => {
 
   return (
     <AuthLayout 
-        title="SkillVerse AI" 
+        title="WorkSphere" 
         subtitle="Secure Corporate Access Terminal"
     >
       <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden shadow-2xl relative">

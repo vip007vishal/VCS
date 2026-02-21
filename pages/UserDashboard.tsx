@@ -1,3 +1,4 @@
+
 import React from 'react';
 import { useSimulation } from '../context/SimulationContext';
 import { Card, StatBox, Button, Badge } from '../components/UI';
@@ -10,7 +11,6 @@ const UserDashboard: React.FC = () => {
   if (!currentUser) return null;
 
   const completedTasks = tasks.filter(t => t.status === 'DONE').length;
-  const inProgressTasks = tasks.filter(t => t.status === 'IN_PROGRESS').length;
   
   // Mock Data for Charts
   const performanceData = [
@@ -46,20 +46,20 @@ const UserDashboard: React.FC = () => {
           <Card title="Active Sprint" icon={Target}>
             <div className="space-y-4">
               <div className="flex justify-between items-center">
-                <h4 className="font-medium text-slate-300">Sprint 42 Progress</h4>
-                <span className="text-indigo-400 font-bold">65%</span>
+                <h4 className="font-medium text-slate-700 dark:text-slate-300">Sprint 42 Progress</h4>
+                <span className="text-indigo-600 dark:text-indigo-400 font-bold">65%</span>
               </div>
-              <div className="w-full bg-slate-700 h-2 rounded-full overflow-hidden">
+              <div className="w-full bg-slate-200 dark:bg-slate-700 h-2 rounded-full overflow-hidden">
                 <div className="bg-indigo-500 h-full w-[65%]"></div>
               </div>
               <div className="grid grid-cols-2 gap-4 mt-4">
-                 <div className="bg-slate-900/50 p-3 rounded border border-slate-800">
+                 <div className="bg-slate-50 dark:bg-slate-900/50 p-3 rounded border border-slate-200 dark:border-slate-800">
                     <p className="text-xs text-slate-500">Pending Review</p>
-                    <p className="text-lg font-bold text-white">3 Tasks</p>
+                    <p className="text-lg font-bold text-slate-900 dark:text-white">3 Tasks</p>
                  </div>
-                 <div className="bg-slate-900/50 p-3 rounded border border-slate-800">
+                 <div className="bg-slate-50 dark:bg-slate-900/50 p-3 rounded border border-slate-200 dark:border-slate-800">
                     <p className="text-xs text-slate-500">Blockers</p>
-                    <p className="text-lg font-bold text-rose-400">1 Critical</p>
+                    <p className="text-lg font-bold text-rose-500 dark:text-rose-400">1 Critical</p>
                  </div>
               </div>
             </div>
@@ -76,13 +76,13 @@ const UserDashboard: React.FC = () => {
           </Card>
 
           <Card title="AI Manager Feedback">
-            <div className="bg-gradient-to-br from-indigo-900/50 to-slate-900 p-4 rounded-lg border border-indigo-500/20">
+            <div className="bg-gradient-to-br from-indigo-50 to-slate-50 dark:from-indigo-900/50 dark:to-slate-900 p-4 rounded-lg border border-indigo-100 dark:border-indigo-500/20">
               <div className="flex items-start gap-3">
                 <div className="w-8 h-8 rounded-full bg-indigo-600 flex items-center justify-center flex-shrink-0">
                   <Bot size={16} className="text-white" />
                 </div>
                 <div>
-                   <p className="text-sm text-slate-300 italic">"Your code velocity is improving, but unit test coverage dropped by 5% this week. Focus on TDD."</p>
+                   <p className="text-sm text-slate-600 dark:text-slate-300 italic">"Your code velocity is improving, but unit test coverage dropped by 5% this week. Focus on TDD."</p>
                    <div className="mt-2 flex gap-2">
                      <Badge color="yellow">Quality Risk</Badge>
                      <Badge color="green">High Velocity</Badge>
@@ -94,10 +94,10 @@ const UserDashboard: React.FC = () => {
 
           <Card title="Founder Journey">
              <div className="flex items-center justify-between mb-2">
-               <span className="text-sm text-slate-400">Eligibility</span>
-               <span className="text-sm font-bold text-slate-500">Locked</span>
+               <span className="text-sm text-slate-500 dark:text-slate-400">Eligibility</span>
+               <span className="text-sm font-bold text-slate-600 dark:text-slate-500">Locked</span>
              </div>
-             <div className="w-full bg-slate-700 h-1.5 rounded-full overflow-hidden mb-2">
+             <div className="w-full bg-slate-200 dark:bg-slate-700 h-1.5 rounded-full overflow-hidden mb-2">
                 <div className="bg-amber-500 h-full w-[40%]"></div>
              </div>
              <p className="text-xs text-slate-500">Reach Level 5 Verification and 900+ Score to unlock CEO mode.</p>

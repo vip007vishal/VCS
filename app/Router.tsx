@@ -35,6 +35,7 @@ import RevenuePage from '../pages/RevenuePage';
 import MethodologyPage from '../pages/MethodologyPage';
 import HiringPage from '../pages/HiringPage';
 import InterviewsPage from '../pages/InterviewsPage';
+import ActiveInterviewPage from '../pages/ActiveInterviewPage';
 import UsersManagementPage from '../pages/UsersManagementPage';
 import CompaniesManagementPage from '../pages/CompaniesManagementPage';
 import AIControlPanel from '../pages/AIControlPanel';
@@ -97,8 +98,11 @@ export const AppRouter: React.FC = () => {
       <Route path="/career" element={<PrivateRoute roles={[Role.USER]}><CareerPage /></PrivateRoute>} />
       <Route path="/verification" element={<PrivateRoute roles={[Role.USER]}><VerificationPage /></PrivateRoute>} />
       
-      {/* Interview Access for Candidates (Users) and Hiring Managers */}
+      {/* Interview Dashboard */}
       <Route path="/interviews" element={<PrivateRoute roles={[Role.USER, Role.MANAGER, Role.CEO]}><InterviewsPage /></PrivateRoute>} />
+      
+      {/* Active Interview Session (No Dashboard Layout if preferred, or wrapped if sidebar needed. Assuming DashboardLayout for consistency but clean view) */}
+      <Route path="/interview/:interviewId" element={<PrivateRoute roles={[Role.USER, Role.MANAGER, Role.CEO]}><ActiveInterviewPage /></PrivateRoute>} />
 
       {/* Role Specific Routes: MANAGER */}
       <Route path="/team" element={<PrivateRoute roles={[Role.MANAGER]}><TeamsPage /></PrivateRoute>} />

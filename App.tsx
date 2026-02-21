@@ -1,15 +1,19 @@
+
 import React from 'react';
 import { HashRouter as Router } from 'react-router-dom';
 import { SimulationProvider } from './context/SimulationContext';
+import { ThemeProvider } from './context/ThemeContext';
 import { AppRouter } from './app/Router';
 
 const App: React.FC = () => {
   return (
-    <SimulationProvider>
-      <Router>
-        <AppRouter />
-      </Router>
-    </SimulationProvider>
+    <ThemeProvider>
+      <SimulationProvider>
+        <Router>
+          <AppRouter />
+        </Router>
+      </SimulationProvider>
+    </ThemeProvider>
   );
 };
 

@@ -684,7 +684,7 @@ export const SimulationProvider: React.FC<{ children: ReactNode }> = ({ children
                       ...i, 
                       status: nextStatus,
                       currentPhase: json.nextPhase || i.currentPhase,
-                      transcript: [...i.transcript, { sender: 'Candidate', text, timestamp: Date.now() }, { sender: 'AI', text: json.message, timestamp: Date.now() }],
+                      transcript: [...i.transcript, { sender: 'AI', text: json.message, timestamp: Date.now() }],
                       feedback: json.internalAssessment?.notes, // Store internal notes invisibly
                       scores: { 
                           ...i.scores, 
@@ -699,7 +699,7 @@ export const SimulationProvider: React.FC<{ children: ReactNode }> = ({ children
           console.error("AI Response Error", e);
           setInterviews(prev => prev.map(i => {
               if (i.id === interviewId) {
-                  return { ...i, transcript: [...i.transcript, { sender: 'Candidate', text, timestamp: Date.now() }, { sender: 'AI', text: "I'm processing that. Let's move to the next topic.", timestamp: Date.now() }] };
+                  return { ...i, transcript: [...i.transcript, { sender: 'AI', text: "I'm processing that. Let's move to the next topic.", timestamp: Date.now() }] };
               }
               return i;
           }));
